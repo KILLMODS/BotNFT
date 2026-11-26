@@ -63,7 +63,7 @@ try:
 except ImportError:
     LinkPreviewOptions = None
 from telegram.constants import ParseMode
-from telegram.error import Forbidden, BadRequest, RetryAfter, TelegramError
+from telegram.error import Forbidden, BadRequest, RetryAfter, TelegramError, InvalidToken
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -132,7 +132,7 @@ CLAN_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 UI_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 AVATARS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9036416244:AAGrJgI3jzMMU5bn6Q36r8cNBIJqGxniXmo")
+BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "9036416244:AAGrJgI3jzMMU5bn6Q36r8cNBIJqGxniXmo").strip()
 SUPPORT_URL = os.environ.get("SUPPORT_URL", "https://t.me/mkrartem")
 SUPPORT_HANDLE = "@mkrartem"
 OFFICIAL_CHANNEL_HANDLE = "@NwNFTChannel"
@@ -20766,7 +20766,14 @@ def main() -> None:
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, on_group_message))
 
     log.info("New NFT Gift Telegram Bot v12.1 запущен!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    try:
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    except InvalidToken:
+        log.error(
+            "❌ Telegram отклонил BOT_TOKEN (%s...). Проверьте переменную BOT_TOKEN на хостинге и обновите токен через @BotFather.",
+            BOT_TOKEN[:12],
+        )
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()

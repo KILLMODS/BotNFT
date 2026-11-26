@@ -1,11 +1,26 @@
-const RAW_BASE = (import.meta.env.VITE_BOT_API_URL || '').trim().replace(/\/+$/, '');
+const RAW_BASE_ENV = (import.meta.env.VITE_BOT_API_URL || '').trim().replace(/\/+$/, '');
+
+function getSafeBase(): string {
+  if (!RAW_BASE_ENV) return '';
+  if (
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'https:' &&
+    RAW_BASE_ENV.startsWith('http://') &&
+    !RAW_BASE_ENV.startsWith('http://localhost') &&
+    !RAW_BASE_ENV.startsWith('http://127.0.0.1')
+  ) {
+    return '';
+  }
+  return RAW_BASE_ENV;
+}
 
 export function resolveApiUrl(path: string): string {
   if (!path) return path;
   if (path.startsWith('data:') || path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  return RAW_BASE ? `${RAW_BASE}${path}` : path;
+  const base = getSafeBase();
+  return base ? `${base}${path}` : path;
 }
 
 export function resolveAssetUrl(path: string | undefined | null): string {
@@ -14,8 +29,9 @@ export function resolveAssetUrl(path: string | undefined | null): string {
 }
 
 export function resolveWsUrl(): string {
-  if (RAW_BASE) {
-    const wsBase = RAW_BASE.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
+  const base = getSafeBase();
+  if (base) {
+    const wsBase = base.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
     return `${wsBase}/ws`;
   }
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -41,16 +57,41 @@ function buildAuthHeaders(): Record<string, string> {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(resolveApiUrl(path), {
-    ...init,
-    headers: {
-      ...buildAuthHeaders(),
-      ...(init?.headers || {}),
-    },
-  });
-  const data = await res.json();
+  let res: Response;
+  try {
+    res = await fetch(resolveApiUrl(path), {
+      ...init,
+      headers: {
+        ...buildAuthHeaders(),
+        ...(init?.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error(
+      'Нет связи с сервером бота (порт 3000). Убедитесь, что бот запущен на хостинге.'
+    );
+  }
+
+  const rawText = await res.text();
+  let data: Record<string, unknown> | null = null;
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText) as Record<string, unknown>;
+    } catch {
+      data = null;
+    }
+  }
+
   if (!res.ok || data?.ok === false) {
-    throw new Error(data?.error || `Ошибка запроса (${res.status})`);
+    const errMsg =
+      (typeof data?.error === 'string' && data.error) ||
+      (res.status >= 502
+        ? `Сервер бота (порт 3000) не отвечает (${res.status}). Проверьте, запущен ли бот.`
+        : `Ошибка запроса (${res.status})`);
+    throw new Error(errMsg);
+  }
+  if (!data) {
+    throw new Error('Сервер вернул некорректный ответ (порт 3000).');
   }
   return data as T;
 }
