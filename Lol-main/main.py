@@ -132,7 +132,7 @@ CLAN_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 UI_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 AVATARS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "9036416244:AAGrJgI3jzMMU5bn6Q36r8cNBIJqGxniXmo").strip()
+BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 SUPPORT_URL = os.environ.get("SUPPORT_URL", "https://t.me/mkrartem")
 SUPPORT_HANDLE = "@mkrartem"
 OFFICIAL_CHANNEL_HANDLE = "@NwNFTChannel"
@@ -337,19 +337,7 @@ _ACTIVE_BATTLE_TASKS: Dict[int, asyncio.Task] = {}
 # Firebase Cloud Database Storage (Интеграция с проектом proar-5a642)
 # ---------------------------------------------------------------------------
 
-FIREBASE_SERVICE_ACCOUNT_CONFIG = {
-    "type": "service_account",
-    "project_id": "proar-5a642",
-    "private_key_id": "039601a8db0c82988fe7ea83c3a3463301d7cd8b",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZpDGlnJ67Qoxu\nGlxikHVtThmN7PdrOXKvVd7Nko2XWs8UZboV/6KmHREN3pEjzwdQb3tXGnWwwR+s\nnUkH5ILGoUpQ88XSxrbgTtKOU8TJbaIye8MmSDTmXHmwxRiMum/BfBdaoPR02P8P\nfLoP4ihwnKe8l7PRFRaybDungKuG7wIzCEUiZy828+DZk24z1ymqyrOwo0JSMpUI\nFWtCQb7cNTt1u9LOfCTCXKP46GTg2ghjYIUqQpVgX3zR4koKLuYava4vrNVAJT9B\nXiL+/YNGnvct5ZKT1OiHh8V4x7o2jN0R2D5sQ03z/Us6CB2LC/9NNQIxsnXp/gzB\nLvqbv94ZAgMBAAECggEABRkespmZxvAsTZ30y7hE5T5pmdSoXQzM8299rG9s5/6Q\nED3BH1J20xD7knQZY+8tutl0WFoofJn22HpyDgBxJx77GIIFVcZ4MoaWJxBY8Tuj\nYNmw/Ly/RHrREkN5AOmTGZittrPuK1iJQlRydVHKZGI/CaC8wmk4jWMR/f6lG0rY\nlLDLNCE9a6c6lLfEL72K7JRmRfbW96DIEnx6ObcqkPzaYb+pz24ewsUkY5b2QVZe\nifrQN2gAqNGq34qVp1m4/ywVC5E40sie0Un2nmINPqEA0VzVllEwgcCd5bx2X8Ya\nI2OW3TnvnoHtxNdXXY04advOMohHpNTdPd2Z5awYQQKBgQD1euUTbnEt8qcXRZYU\nmKEL5P4FvPQ7Ly3vQ8vGd7oK7lLE0zY+nEE1TW5mAaNM1W6QzZSAQsfUq8k1QZLI\n4m70f//UcnvADi/Ke12ze1xxCtHYADYb04bQ4CjfjtLk5ZstjO31mVqkNQXiSUo2\nTXYTpsi93zxj9SHaa6HT5F0zkQKBgQDi9+MtUw6ChXoiVF6V3C5AU5mtJA1eRdQy\n8AZ9GTrPAGh5ewVG+Nl9VG3ePIbZkmquh2zEo2f0LgPczegVIqDz0VBIW4LIw4wT\nmNG7MSOtJg2/wpoZexw7y1BknkWi8aV26BkEgxDEIXvvjUC3tHD9V0m2BZ4lVlsr\ng6+ZLWUuCQKBgC7JhJ3GgAXc6OHznl5AlPlaZNwdHoOlQ2EGD/G84hWxRM9E3mLi\njz8kifUhPMmpKFCrDjHACKxNLaVb4Skuly08tDr+sv1w9sTl7H8H9R+Ki2Ja7/Uv\nxNNM1h198E42QPRWlwgneXIwtPVjOKTO8MFgGYSu5qi6kQA7YXWsYeMxAoGBAItB\ncH9UoGhwoNkDTu0/pJkPMhDLN/CJg4KlRjXnDvAG3hL66ef7suV0sdxS4qIHdbET\noiab46IrwW7uXuDo2DwARvO+QeYQJJe5gaUKp0sLOBBZw9aydEYznmW9vhgVj2H/\nUao1CEpuCO6XigesjE7ECZPGqptZ+qIeL9UZxySRAoGBAIkU8wfatRMbuPmzgtst\nhEZt62FEe+0MP1QfPY6ByddLnzqlO6JpWRNUXkx6zFjf3Vy7J/J+fClAo10E4uWh\nFe7HkfG/CCamiAB4ki1WiSrrQkB/FtJAaBI3y4Ka1jN6IzniVJ0pH1Nb9N8+x8eE\nMSgIEVIFGwIPv3vQofyxnnTr\n-----END PRIVATE KEY-----\n",
-    "client_email": "firebase-adminsdk-fbsvc@proar-5a642.iam.gserviceaccount.com",
-    "client_id": "103737744652283306114",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40proar-5a642.iam.gserviceaccount.com",
-    "universe_domain": "googleapis.com"
-}
+FIREBASE_SERVICE_ACCOUNT_CONFIG: Dict[str, str] = {}
 
 class FirebaseCloudManager:
     """
@@ -394,7 +382,9 @@ class FirebaseCloudManager:
         if self.cached_token and self.token_expiry > now + 120:
             return self.cached_token
 
-        key_dict = self.loaded_cred_dict or dict(FIREBASE_SERVICE_ACCOUNT_CONFIG)
+        key_dict = self.loaded_cred_dict or (dict(FIREBASE_SERVICE_ACCOUNT_CONFIG) if FIREBASE_SERVICE_ACCOUNT_CONFIG else {})
+        if not key_dict or not key_dict.get("private_key") or not key_dict.get("client_email"):
+            return None
         try:
             from google.oauth2 import service_account
             from google.auth.transport.requests import Request
@@ -491,26 +481,50 @@ class FirebaseCloudManager:
             pass
 
         cred_dict = None
-        loaded_source = "встроенного ключа"
+        loaded_source = "env/файл"
 
-        for candidate in candidate_files:
-            if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 50:
-                try:
-                    with open(candidate, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        if "private_key" in data and "client_email" in data:
-                            data["private_key"] = data["private_key"].replace("\\n", "\n")
-                            cred_dict = data
-                            loaded_source = candidate.name
-                            self.active_key_id = data.get("private_key_id", "external")
-                            break
-                except Exception as ex:
-                    log.warning(f"[Firebase] Ошибка чтения {candidate}: {ex}")
+        env_cred_raw = (os.environ.get("FIREBASE_CREDENTIALS_JSON") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") or "").strip()
+        if env_cred_raw:
+            try:
+                data = json.loads(env_cred_raw)
+                if isinstance(data, dict) and "private_key" in data and "client_email" in data:
+                    data["private_key"] = str(data["private_key"]).replace("\\n", "\n")
+                    cred_dict = data
+                    loaded_source = "FIREBASE_CREDENTIALS_JSON"
+                    self.active_key_id = data.get("private_key_id", "env")
+            except Exception as ex:
+                log.warning(f"[Firebase] Ошибка чтения FIREBASE_CREDENTIALS_JSON: {ex}")
 
         if not cred_dict:
+            for candidate in candidate_files:
+                if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 50:
+                    try:
+                        with open(candidate, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            if "private_key" in data and "client_email" in data:
+                                data["private_key"] = data["private_key"].replace("\\n", "\n")
+                                cred_dict = data
+                                loaded_source = candidate.name
+                                self.active_key_id = data.get("private_key_id", "external")
+                                break
+                    except Exception as ex:
+                        log.warning(f"[Firebase] Ошибка чтения {candidate}: {ex}")
+
+        if not cred_dict and FIREBASE_SERVICE_ACCOUNT_CONFIG.get("private_key"):
             cred_dict = dict(FIREBASE_SERVICE_ACCOUNT_CONFIG)
             cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
             self.active_key_id = cred_dict.get("private_key_id", "embedded")
+
+        if not cred_dict:
+            self.loaded_cred_dict = None
+            self.firestore_client = None
+            self.initialized = True
+            self._startup_download_error = True
+            log.warning(
+                "[Firebase] Ключ сервисного аккаунта не задан (добавьте FIREBASE_CREDENTIALS_JSON в env или файл firebase-service-account.json). "
+                "Облачная синхронизация отключена, бот работает с локальной base.db."
+            )
+            return False
 
         self.loaded_cred_dict = cred_dict
         self.project_id = cred_dict.get("project_id", "proar-5a642")
@@ -644,6 +658,37 @@ class FirebaseCloudManager:
             with open(tmp_path, "wb") as f:
                 f.write(raw_bytes)
 
+            # Аварийный фоллбэк: если основной документ успел затереться старым процессом (<=3 игр.),
+            # а в облаке лежит резервная копия sqlite_database_backup_155users — берём её.
+            if self._count_local_users(tmp_path) <= 3:
+                try:
+                    bak_b64 = None
+                    if self.firestore_client:
+                        bak_snap = self.firestore_client.collection(self.collection_name).document("sqlite_database_backup_155users").get()
+                        if bak_snap.exists:
+                            bak_b64 = (bak_snap.to_dict() or {}).get("data_gzip_b64")
+                    if not bak_b64:
+                        token = self.get_access_token()
+                        if token:
+                            bak_url = f"https://firestore.googleapis.com/v1/projects/{self.project_id}/databases/(default)/documents/{self.collection_name}/sqlite_database_backup_155users"
+                            req = urllib.request.Request(bak_url, headers={"Authorization": f"Bearer {token}"})
+                            with urllib.request.urlopen(req, timeout=15) as r:
+                                bak_b64 = json.loads(r.read().decode("utf-8")).get("fields", {}).get("data_gzip_b64", {}).get("stringValue")
+                    if bak_b64:
+                        bak_bytes = gzip.decompress(base64.b64decode(bak_b64))
+                        if bak_bytes.startswith(b"SQLite format 3\x00"):
+                            bak_tmp = BASE_DIR / "base.db.tmp_bak_check"
+                            with open(bak_tmp, "wb") as bf:
+                                bf.write(bak_bytes)
+                            if self._count_local_users(bak_tmp) > self._count_local_users(tmp_path):
+                                shutil.move(bak_tmp, tmp_path)
+                                raw_bytes = bak_bytes
+                                log.warning("[Firebase] 🛡️ Основной документ был пуст; база восстановлена из резервной копии sqlite_database_backup_155users!")
+                            else:
+                                bak_tmp.unlink()
+                except Exception:
+                    pass
+
             if DB_PATH.exists():
                 try:
                     shutil.copy2(DB_PATH, BASE_DIR / "base.db.backup_local")
@@ -664,6 +709,54 @@ class FirebaseCloudManager:
             self._startup_download_error = True
             return False
 
+    def _get_cloud_users_and_size(self) -> Tuple[int, int]:
+        """Возвращает (кол-во пользователей в облаке, file_size в байтах) или (-1, 0) при отсутствии/ошибке."""
+        try:
+            b64_data = None
+            fsize = 0
+            if self.firestore_client:
+                try:
+                    snap = self.firestore_client.collection(self.collection_name).document(self.doc_name).get()
+                    if not snap.exists:
+                        return 0, 0
+                    d = snap.to_dict() or {}
+                    b64_data = d.get("data_gzip_b64")
+                    fsize = int(d.get("file_size") or 0)
+                except Exception:
+                    b64_data = None
+            if not b64_data:
+                token = self.get_access_token()
+                if not token:
+                    return -1, 0
+                doc_url = f"https://firestore.googleapis.com/v1/projects/{self.project_id}/databases/(default)/documents/{self.collection_name}/{self.doc_name}"
+                req = urllib.request.Request(doc_url, headers={"Authorization": f"Bearer {token}"})
+                try:
+                    with urllib.request.urlopen(req, timeout=15) as r:
+                        doc_json = json.loads(r.read().decode("utf-8"))
+                        fields = doc_json.get("fields", {})
+                        b64_data = fields.get("data_gzip_b64", {}).get("stringValue")
+                        fsize = int(fields.get("file_size", {}).get("integerValue") or 0)
+                except urllib.error.HTTPError as he:
+                    if he.code == 404:
+                        return 0, 0
+                    return -1, 0
+            if not b64_data:
+                return 0, fsize
+            raw_bytes = gzip.decompress(base64.b64decode(b64_data))
+            tmp_check = BASE_DIR / "base.db.tmp_cloud_check"
+            with open(tmp_check, "wb") as f:
+                f.write(raw_bytes)
+            try:
+                cnt = self._count_local_users(tmp_check)
+            finally:
+                try:
+                    tmp_check.unlink()
+                except Exception:
+                    pass
+            return cnt, max(fsize, len(raw_bytes))
+        except Exception:
+            return -1, 0
+
     def upload_db_to_cloud(self, force: bool = False) -> bool:
         if self._auth_revoked or not self.init_app():
             return False
@@ -681,16 +774,23 @@ class FirebaseCloudManager:
                 if not self.is_valid_sqlite(DB_PATH):
                     return False
 
-                # Защита от затирания непустой облачной базы пустой локальной
-                if self._count_local_users(DB_PATH) == 0 and not self._cloud_doc_missing:
-                    if self.firestore_client:
-                        try:
-                            snap = self.firestore_client.collection(self.collection_name).document(self.doc_name).get()
-                            if snap.exists:
-                                log.warning("[Firebase] 🛑 Anti-Wipe: локальная база пуста (0 игроков), а в Firestore уже есть база. Отмена!")
-                                return False
-                        except Exception:
-                            pass
+                local_users = self._count_local_users(DB_PATH)
+                # Строгий Anti-Wipe: никогда не перезаписывать более крупную облачную базу малой/пустой локальной
+                if not self._cloud_doc_missing and (local_users <= 5 or force):
+                    cloud_users, cloud_size = self._get_cloud_users_and_size()
+                    if cloud_users == -1:
+                        if local_users <= 3:
+                            log.warning("[Firebase] 🛑 Anti-Wipe: не удалось проверить облачную базу при малой локальной (%d игр.). Отмена!", local_users)
+                            return False
+                    elif cloud_users > local_users and (local_users <= 3 or (cloud_users >= 10 and local_users < int(cloud_users * 0.5))):
+                        msg = (
+                            f"🛑 Anti-Wipe: в локальной базе всего {local_users} игр., а в Firestore уже {cloud_users} игр. ({cloud_size:,} байт). "
+                            "Выгрузка заблокирована — нажмите «Восстановить из Firestore»!"
+                        )
+                        log.error(f"[Firebase] {msg}")
+                        self.last_sync_status = msg
+                        self._startup_download_error = True
+                        return False
 
                 current_size = DB_PATH.stat().st_size
                 if not force and self.last_sync_ts > 0 and (time.time() - self.last_sync_ts < 15):
@@ -10213,11 +10313,19 @@ async def admin_firebase_json_received(update: Update, context: ContextTypes.DEF
             json.dump(data, f, indent=2)
 
         firebase_manager.init_app(force_reload=True)
-        sync_ok = firebase_manager.upload_db_to_cloud(force=True)
+        local_users = firebase_manager._count_local_users(DB_PATH)
+        cloud_users, _ = firebase_manager._get_cloud_users_and_size()
+
+        if cloud_users > local_users and cloud_users > 0:
+            sync_ok = firebase_manager.download_db_on_startup()
+            action_note = f"База восстановлена из Firestore ({cloud_users} игр.)!"
+        else:
+            sync_ok = firebase_manager.upload_db_to_cloud(force=True)
+            action_note = "Локальная база синхронизирована с Firestore!"
 
         if sync_ok:
             await update.message.reply_text(
-                f"✅ <b>Новый ключ Firebase установлен и проверен!</b>",
+                f"✅ <b>Новый ключ Firebase установлен и проверен!</b>\n{action_note}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👑 В админ-панель", callback_data="admin_panel")]])
             )
@@ -19096,8 +19204,18 @@ def get_mini_app_catalog() -> dict:
         }
         for b in PLUSHPEPE_BACKDROPS
     ]
+    base_gifts = [
+        {
+            "key": g.key,
+            "name": g.name,
+            "stars": g.stars,
+            "image_url": f"/api/assets/gift/{urllib.parse.quote(g.key)}",
+        }
+        for g in sorted(GIFTS, key=lambda x: x.stars)
+    ]
     return {
         "upgradable_gifts": upgradable_gifts,
+        "base_gifts": base_gifts,
         "models_by_gift": models_by_gift,
         "backdrops": backdrops,
         "ton_star_rate": TON_STAR_RATE,
@@ -19311,9 +19429,9 @@ def create_memecoin_db(user_id: int, name: str, ticker: str, image_b64: str) -> 
         new_tons = round(cur_tons - MEMECOIN_CREATE_TON_COST, 6)
         conn.execute("UPDATE users SET balance_tons=? WHERE user_id=?", (new_tons, user_id))
 
-        total_supply = 1_000_000.0
-        reserve_ton = 250.0
-        reserve_token = 1_000_000.0
+        total_supply = 100_000_000.0
+        reserve_ton = 20_000.0
+        reserve_token = 100_000_000.0
         init_price = reserve_ton / reserve_token
         init_mcap = init_price * total_supply
         now_ts = int(time.time())
@@ -19436,7 +19554,7 @@ def get_memecoin_detail_db(coin_id: int, user_id: int = 0) -> Optional[dict]:
         conn.close()
 
 
-def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float) -> Tuple[bool, str, dict]:
+def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit: str = "ton") -> Tuple[bool, str, dict]:
     if amount <= 0:
         return False, "Укажите сумму больше 0.", {}
     conn = db_connect()
@@ -19458,22 +19576,43 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float) -> T
         k_const = res_ton * res_tok
         now_ts = int(time.time())
         bucket_ts = now_ts - (now_ts % 60)
+        fee_ton = 0.0
+        gross_ton_out = 0.0
 
         if side == "buy":
-            ton_in = round(float(amount), 6)
-            if ton_in < 0.01:
-                conn.rollback()
-                return False, "Минимальная покупка — 0.01 TON.", {}
-            if cur_tons + 1e-9 < ton_in:
-                conn.rollback()
-                return False, "Недостаточно TON на балансе.", {}
-            effective_ton = ton_in * 0.99
-            new_res_ton = res_ton + effective_ton
-            new_res_tok = k_const / new_res_ton
-            tokens_out = max(0.0, res_tok - new_res_tok)
-            if tokens_out <= 0:
-                conn.rollback()
-                return False, "Слишком маленькая покупка.", {}
+            if unit == "tokens":
+                tokens_out = float(amount)
+                if tokens_out < 1.0:
+                    conn.rollback()
+                    return False, "Минимальная покупка — 1 токен.", {}
+                if tokens_out >= res_tok * 0.99:
+                    conn.rollback()
+                    return False, "Нельзя выкупить более 99% пула за одну сделку.", {}
+                new_res_tok = res_tok - tokens_out
+                new_res_ton = k_const / new_res_tok
+                ton_in = round(max(0.0, new_res_ton - res_ton), 6)
+                if ton_in < 0.0001:
+                    conn.rollback()
+                    return False, "Слишком маленькая покупка.", {}
+                if cur_tons + 1e-9 < ton_in:
+                    conn.rollback()
+                    return False, f"Недостаточно TON на балансе (нужно {ton_in:.4f} TON).", {}
+            else:
+                ton_in = round(float(amount), 6)
+                if ton_in < 0.01:
+                    conn.rollback()
+                    return False, "Минимальная покупка — 0.01 TON.", {}
+                if cur_tons + 1e-9 < ton_in:
+                    conn.rollback()
+                    return False, "Недостаточно TON на балансе.", {}
+                effective_ton = ton_in * 0.99
+                new_res_ton = res_ton + effective_ton
+                new_res_tok = k_const / new_res_ton
+                tokens_out = max(0.0, res_tok - new_res_tok)
+                if tokens_out <= 0:
+                    conn.rollback()
+                    return False, "Слишком маленькая покупка.", {}
+
             new_price = new_res_ton / new_res_tok
             new_mcap = new_price * total_supply
             new_user_tons = round(max(0.0, cur_tons - ton_in), 6)
@@ -19497,7 +19636,8 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float) -> T
             new_res_tok = res_tok + tokens_in
             new_res_ton = k_const / new_res_tok
             gross_ton_out = max(0.0, res_ton - new_res_ton)
-            ton_out = round(gross_ton_out * 0.99, 6)
+            fee_ton = round(gross_ton_out * 0.15, 6)
+            ton_out = round(gross_ton_out * 0.85, 6)
             if ton_out <= 0:
                 conn.rollback()
                 return False, "Слишком маленькое количество для продажи.", {}
@@ -19554,7 +19694,14 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float) -> T
         )
         conn.commit()
         detail = get_memecoin_detail_db(coin_id, user_id=user_id)
-        return True, "OK", {"balance_tons": new_user_tons, **(detail or {})}
+        return True, "OK", {
+            "balance_tons": new_user_tons,
+            "ton_amount": round(ton_vol, 6),
+            "gross_ton_out": round(gross_ton_out, 6),
+            "fee_ton": round(fee_ton, 6),
+            "tokens_delta": round(tok_delta, 4),
+            **(detail or {}),
+        }
     except Exception:
         try:
             conn.rollback()
@@ -19563,6 +19710,86 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float) -> T
         raise
     finally:
         conn.close()
+
+
+def resolve_auto_rocket_nft(
+    target_value: int,
+    source_stars: int,
+    source_is_upgraded: bool = False,
+    seed: int = 0,
+) -> dict:
+    base_pool = sorted([g for g in GIFTS if g.stars < 400_000], key=lambda g: g.stars)
+    if not source_is_upgraded and target_value < 400_000:
+        best_base = None
+        for g in base_pool:
+            if g.stars <= target_value:
+                best_base = g
+        if best_base and best_base.stars > source_stars:
+            return {
+                "is_upgraded": False,
+                "gift_key": best_base.key,
+                "name": best_base.name,
+                "title": best_base.name,
+                "model_name": None,
+                "backdrop_key": None,
+                "backdrop_name": None,
+                "backdrop_center_hex": None,
+                "backdrop_edge_hex": None,
+                "stars": int(best_base.stars),
+                "image_url": f"/api/assets/gift/{urllib.parse.quote(best_base.key)}",
+            }
+        if target_value < 150_000:
+            next_base = next((g for g in base_pool if g.stars >= max(source_stars, target_value)), base_pool[-1])
+            return {
+                "is_upgraded": False,
+                "gift_key": next_base.key,
+                "name": next_base.name,
+                "title": next_base.name,
+                "model_name": None,
+                "backdrop_key": None,
+                "backdrop_name": None,
+                "backdrop_center_hex": None,
+                "backdrop_edge_hex": None,
+                "stars": int(next_base.stars),
+                "image_url": f"/api/assets/gift/{urllib.parse.quote(next_base.key)}",
+            }
+
+    candidates = []
+    for g_key in UPGRADABLE_GIFT_KEYS:
+        g = GIFTS_BY_KEY.get(g_key)
+        models = get_models_for_gift(g_key)
+        if not g or not models:
+            continue
+        mdef = models[abs(int(seed)) % len(models)]
+        for bdef in PLUSHPEPE_BACKDROPS:
+            nat_stars = calculate_upgraded_stars(g.stars, mdef, bdef, g_key, 0)
+            candidates.append((nat_stars, g_key, g, mdef, bdef))
+    candidates.sort(key=lambda x: x[0])
+
+    min_floor = 400_000 if not source_is_upgraded else max(150_000, source_stars)
+    reward_stars = max(min_floor, int(round(target_value / 5_000) * 5_000))
+    chosen = min(candidates, key=lambda c: abs(c[0] - reward_stars)) if candidates else None
+    if not chosen:
+        g = GIFTS_BY_KEY["pepe_heart"]
+        mdef = get_models_for_gift("pepe_heart")[0]
+        bdef = PLUSHPEPE_BACKDROPS[1]
+        g_key = "pepe_heart"
+    else:
+        _, g_key, g, mdef, bdef = chosen
+
+    return {
+        "is_upgraded": True,
+        "gift_key": g_key,
+        "name": g.name,
+        "title": mdef.name,
+        "model_name": mdef.name,
+        "backdrop_key": bdef.key,
+        "backdrop_name": bdef.name,
+        "backdrop_center_hex": bdef.center_hex,
+        "backdrop_edge_hex": bdef.edge_hex,
+        "stars": int(reward_stars),
+        "image_url": f"/api/assets/model/{urllib.parse.quote(g_key)}/{urllib.parse.quote(mdef.filename)}",
+    }
 
 
 class _RocketEngine:
@@ -19600,6 +19827,7 @@ class _RocketEngine:
                     "stake_stars": b["stake_stars"],
                     "item_name": b.get("item_name"),
                     "item_image_url": b.get("item_image_url"),
+                    "source_is_upgraded": b.get("source_is_upgraded", False),
                     "target_gift_title": b.get("target_gift_title"),
                     "target_mult": b.get("target_mult"),
                     "auto_cashout": b.get("auto_cashout"),
@@ -19682,16 +19910,8 @@ class _RocketEngine:
                     if int(item["is_listed"] or 0) != 0:
                         conn.rollback()
                         return False, "Этот NFT уже занят.", {}
-                    canon_target = canonical_gift_key(target_gift_key)
-                    if canon_target not in UPGRADABLE_GIFT_KEYS:
-                        conn.rollback()
-                        return False, "Выберите доступную цель апгрейда.", {}
                     source_val = get_item_display_value(item)
-                    _, _, b_val = get_item_buffs(item)
-                    mdef, bdef, target_stars, _ = compute_upgrader_target_and_chance(
-                        source_val, canon_target, target_model_name, target_backdrop_key, b_val
-                    )
-                    req_mult = max(1.35, round((target_stars / max(1, source_val)) * ROCKET_UPGRADE_MULT_PENALTY, 2))
+                    source_is_up = bool(int(item["is_upgraded"] or 0))
                     conn.execute("UPDATE collection SET is_listed=2 WHERE id=?", (collection_item_id,))
                     conn.commit()
                     img_u, _ = _item_image_urls(item)
@@ -19703,15 +19923,12 @@ class _RocketEngine:
                         "stake_type": "nft",
                         "stake_stars": source_val,
                         "collection_item_id": int(collection_item_id),
-                        "item_name": sg.name if sg else item["gift_key"],
+                        "item_name": item["model_name"] or (sg.name if sg else item["gift_key"]),
                         "item_image_url": img_u,
-                        "target_gift_key": canon_target,
-                        "target_gift_title": get_upgraded_gift_title(canon_target),
-                        "target_model_name": mdef.name,
-                        "target_backdrop_key": bdef.key,
-                        "target_stars": int(target_stars),
-                        "target_mult": req_mult,
-                        "auto_cashout": req_mult,
+                        "source_is_upgraded": source_is_up,
+                        "target_gift_title": "Авто-апгрейд NFT",
+                        "target_mult": 1.25,
+                        "auto_cashout": None,
                         "status": "active",
                         "cashout_mult": None,
                         "payout_stars": 0,
@@ -19746,33 +19963,45 @@ class _RocketEngine:
                 return {"won": True, "payout_stars": payout, "upgraded": False}
             else:
                 item_id = int(bet["collection_item_id"])
-                if mult >= float(bet["target_mult"]):
+                achieved_val = int(round(float(bet["stake_stars"]) * float(mult)))
+                reward = resolve_auto_rocket_nft(
+                    achieved_val,
+                    int(bet["stake_stars"]),
+                    bool(bet.get("source_is_upgraded")),
+                    item_id,
+                )
+                if reward["is_upgraded"]:
                     mx = conn.execute("SELECT COALESCE(MAX(upgrade_num), 0) AS mx FROM collection").fetchone()
                     next_num = int(mx["mx"] or 0) + 1
                     conn.execute(
                         "UPDATE collection SET gift_key=?, is_upgraded=1, model_name=?, backdrop_key=?, upgraded_stars=?, upgrade_num=?, is_listed=0 WHERE id=?",
                         (
-                            bet["target_gift_key"],
-                            bet["target_model_name"],
-                            bet["target_backdrop_key"],
-                            int(bet["target_stars"]),
+                            reward["gift_key"],
+                            reward["model_name"],
+                            reward["backdrop_key"],
+                            int(reward["stars"]),
                             next_num,
                             item_id,
                         ),
                     )
                     conn.execute("UPDATE users SET xp=xp+3500 WHERE user_id=?", (bet["user_id"],))
-                    conn.commit()
-                    bet["status"] = "won"
-                    bet["cashout_mult"] = round(mult, 2)
-                    bet["payout_stars"] = int(bet["target_stars"])
-                    return {"won": True, "payout_stars": int(bet["target_stars"]), "upgraded": True}
                 else:
-                    conn.execute("UPDATE collection SET is_listed=0 WHERE id=?", (item_id,))
-                    conn.commit()
-                    bet["status"] = "won"
-                    bet["cashout_mult"] = round(mult, 2)
-                    bet["payout_stars"] = int(bet["stake_stars"])
-                    return {"won": True, "payout_stars": int(bet["stake_stars"]), "upgraded": False}
+                    conn.execute(
+                        "UPDATE collection SET gift_key=?, is_upgraded=0, model_name=NULL, backdrop_key=NULL, upgraded_stars=0, is_listed=0 WHERE id=?",
+                        (reward["gift_key"], item_id),
+                    )
+                    conn.execute("UPDATE users SET xp=xp+900 WHERE user_id=?", (bet["user_id"],))
+                conn.commit()
+                bet["status"] = "won"
+                bet["cashout_mult"] = round(mult, 2)
+                bet["payout_stars"] = int(reward["stars"])
+                bet["target_gift_title"] = reward["title"]
+                return {
+                    "won": True,
+                    "payout_stars": int(reward["stars"]),
+                    "upgraded": bool(reward["is_upgraded"]),
+                    "reward_name": reward["title"],
+                }
         except Exception:
             try:
                 conn.rollback()
@@ -19789,8 +20018,8 @@ class _RocketEngine:
             bet = self.bets.get(user_id)
             if not bet or bet["status"] != "active":
                 return False, "У вас нет активной ставки в этом раунде.", {}
-            if bet["stake_type"] == "nft" and self.multiplier < 1.30:
-                return False, "NFT можно забрать начиная с x1.30.", {}
+            if bet["stake_type"] == "nft" and self.multiplier < 1.25:
+                return False, "NFT можно забрать начиная с x1.25.", {}
             res = self._settle_cashout_sync(bet, self.multiplier)
         await self.broadcast("rocket_state")
         return True, "OK", res
@@ -20046,6 +20275,7 @@ async def _api_coin_trade(request):
         coin_id,
         str(body.get("side") or ""),
         amount,
+        str(body.get("unit") or "ton"),
     )
     if not ok:
         return _json_response(request, {"ok": False, "error": msg}, status=400)
@@ -20274,6 +20504,9 @@ async def on_app_post_shutdown(app: Application) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    if not BOT_TOKEN:
+        log.error("❌ Не задана переменная окружения BOT_TOKEN! Укажите токен бота от @BotFather в настройках хостинга.")
+        raise SystemExit(1)
     db_restored = False
     try:
         db_restored = firebase_manager.download_db_on_startup()

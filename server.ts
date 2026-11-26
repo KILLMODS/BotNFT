@@ -124,6 +124,26 @@ const UPGRADABLE_GIFTS: GiftCatalogItem[] = [
   { key: 'bonded_ring', title: 'Bonded Ring', name: 'Bonded Ring (Кольцо)', base_stars: 40000, upgrade_cost: 150000, image_url: '/api/assets/gift/bonded_ring' },
 ];
 
+const BASE_GIFTS = [
+  { key: 'teddy_patrick', name: 'Irish Bear (Мишка-лепрекон)', stars: 65, image_url: '/api/assets/gift/teddy_patrick' },
+  { key: 'teddy_flowers', name: 'Pretty Posy (Мишка с букетом)', stars: 420, image_url: '/api/assets/gift/teddy_flowers' },
+  { key: 'crystal_ball', name: 'Crystal Ball (Магический шар)', stars: 1300, image_url: '/api/assets/gift/crystal_ball' },
+  { key: 'skull_ghost', name: 'Electric Skull (Призрачный череп)', stars: 2200, image_url: '/api/assets/gift/skull_ghost' },
+  { key: 'rose_bell_jar', name: 'Eternal Rose (Роза под колпаком)', stars: 2600, image_url: '/api/assets/gift/rose_bell_jar' },
+  { key: 'durov_dog', name: 'Snoop Dogg (Пёс Дурова)', stars: 3000, image_url: '/api/assets/gift/durov_dog' },
+  { key: 'signet_ring', name: 'Signet Ring (Перстень)', stars: 3500, image_url: '/api/assets/gift/signet_ring' },
+  { key: 'briefcase', name: 'Loot Bag (Дипломат)', stars: 6800, image_url: '/api/assets/gift/briefcase' },
+  { key: 'sunglasses', name: "Durov's Glasses (Очки Дурова)", stars: 9500, image_url: '/api/assets/gift/sunglasses' },
+  { key: 'gem_crystal', name: 'Astral Shard (Кристалл Алмаз)', stars: 12000, image_url: '/api/assets/gift/gem_crystal' },
+  { key: 'heart_lock_key', name: 'Heart Locket (Сердце-замок)', stars: 22000, image_url: '/api/assets/gift/heart_lock_key' },
+  { key: 'hockey_mask', name: 'Hockey Mask (Хоккейная маска)', stars: 26000, image_url: '/api/assets/gift/hockey_mask' },
+  { key: 'cap_tg', name: "Durov's Cap (Кепка Дурова)", stars: 38000, image_url: '/api/assets/gift/cap_tg' },
+  { key: 'bonded_ring', name: 'Bonded Ring (Кольцо)', stars: 40000, image_url: '/api/assets/gift/bonded_ring' },
+  { key: 'hero_figure', name: 'Durov Figure (Фигурка Дурова)', stars: 42000, image_url: '/api/assets/gift/hero_figure' },
+  { key: 'trophy_cup', name: 'Algorithm Cup (Кубок Чемпиона)', stars: 85000, image_url: '/api/assets/gift/trophy_cup' },
+  { key: 'pepe_heart', name: 'Plush Pepe (Пепе с сердцем)', stars: 480000, image_url: '/api/assets/gift/pepe_heart' },
+];
+
 const BACKDROPS: BackdropDef[] = [
   { key: 'black', name: 'Black', palette: 'Глубокий чёрный', center_hex: '#363738', edge_hex: '#0E0F0F', price_mult: 10.5, rarity_label: 'Ультра-редкий' },
   { key: 'onyx_black', name: 'Onyx Black', palette: 'Ониксовый чёрный', center_hex: '#4D5254', edge_hex: '#313638', price_mult: 9.5, rarity_label: 'Ультра-редкий' },
@@ -328,24 +348,25 @@ function makeSeedCoin(): Memecoin {
   const nowSec = Math.floor(Date.now() / 1000);
   const bucket = nowSec - (nowSec % 60);
   const candles: Candle[] = [];
-  let p = 0.00025;
-  const deltas = [0.00002, -0.00001, 0.00003, 0.00001, -0.00002, 0.00004, -0.000015, 0.000035, 0.000025, -0.00001];
+  let p = 0.0002;
+  const deltas = [0.000015, -0.000008, 0.00002, 0.00001, -0.000012, 0.000025, -0.00001, 0.00002, 0.000015, -0.000005];
   for (let i = 0; i < deltas.length; i++) {
     const open = p;
-    const close = Number(Math.max(0.00015, open + deltas[i]).toFixed(8));
-    const high = Number((Math.max(open, close) * 1.04).toFixed(8));
-    const low = Number((Math.min(open, close) * 0.96).toFixed(8));
+    const close = Number(Math.max(0.00014, open + deltas[i]).toFixed(8));
+    const high = Number((Math.max(open, close) * 1.035).toFixed(8));
+    const low = Number((Math.min(open, close) * 0.965).toFixed(8));
     candles.push({
       time: bucket - (deltas.length - i) * 60,
       open,
       high,
       low,
       close,
-      volume: Number((18 + i * 7.5).toFixed(2)),
+      volume: Number((180 + i * 45).toFixed(2)),
     });
     p = close;
   }
-  const resTon = 340.0;
+  const totalSupply = 100_000_000;
+  const resTon = 22_000;
   const resTok = resTon / p;
   return {
     id: 1,
@@ -355,18 +376,18 @@ function makeSeedCoin(): Memecoin {
     image_url: '/api/assets/gift/pepe_heart',
     reserve_ton: resTon,
     reserve_token: resTok,
-    total_supply: 1000000,
+    total_supply: totalSupply,
     price_ton: p,
-    market_cap_ton: Number((p * 1000000).toFixed(4)),
-    volume_24h_ton: 425.5,
+    market_cap_ton: Number((p * totalSupply).toFixed(4)),
+    volume_24h_ton: 3425.5,
     holders_count: 14,
     created_ts: nowSec - 3600,
     candles,
     trades: [
-      { id: 1, user_id: 684535319, side: 'buy', ton_amount: 45, token_amount: 128500, price_ton: p, created_ts: nowSec - 180 },
-      { id: 2, user_id: 7459502130, side: 'buy', ton_amount: 22.5, token_amount: 64200, price_ton: Number((p * 0.96).toFixed(8)), created_ts: nowSec - 420 },
+      { id: 1, user_id: 684535319, side: 'buy', ton_amount: 450, token_amount: 1750000, price_ton: p, created_ts: nowSec - 180 },
+      { id: 2, user_id: 7459502130, side: 'buy', ton_amount: 225, token_amount: 880000, price_ton: Number((p * 0.96).toFixed(8)), created_ts: nowSec - 420 },
     ],
-    holdings: new Map([[684535319, 128500]]),
+    holdings: new Map([[684535319, 1750000]]),
   };
 }
 
@@ -424,11 +445,8 @@ interface RocketBet {
   collection_item_id?: number;
   item_name?: string;
   item_image_url?: string;
-  target_gift_key?: string;
+  source_is_upgraded?: boolean;
   target_gift_title?: string;
-  target_model_name?: string;
-  target_backdrop_key?: string;
-  target_stars?: number;
   target_mult?: number;
   auto_cashout?: number | null;
   status: 'active' | 'won' | 'lost';
@@ -482,6 +500,91 @@ function broadcastWS(type: string, data: unknown) {
   }
 }
 
+function resolveAutoRocketNft(
+  targetValue: number,
+  sourceStars: number,
+  sourceIsUpgraded = false,
+  seed = 0
+) {
+  const basePool = BASE_GIFTS.filter((g) => g.stars < 400_000).sort((a, b) => a.stars - b.stars);
+  if (!sourceIsUpgraded && targetValue < 400_000) {
+    let bestBase: (typeof basePool)[number] | null = null;
+    for (const g of basePool) {
+      if (g.stars <= targetValue) bestBase = g;
+    }
+    if (bestBase && bestBase.stars > sourceStars) {
+      return {
+        is_upgraded: false,
+        gift_key: bestBase.key,
+        name: bestBase.name,
+        title: bestBase.name,
+        model_name: null as string | null,
+        backdrop_key: null as string | null,
+        backdrop_name: null as string | null,
+        backdrop_center_hex: null as string | null,
+        backdrop_edge_hex: null as string | null,
+        stars: bestBase.stars,
+        image_url: bestBase.image_url,
+      };
+    }
+    if (targetValue < 150_000) {
+      const nextBase = basePool.find((g) => g.stars >= Math.max(sourceStars, targetValue)) || basePool[basePool.length - 1];
+      return {
+        is_upgraded: false,
+        gift_key: nextBase.key,
+        name: nextBase.name,
+        title: nextBase.name,
+        model_name: null as string | null,
+        backdrop_key: null as string | null,
+        backdrop_name: null as string | null,
+        backdrop_center_hex: null as string | null,
+        backdrop_edge_hex: null as string | null,
+        stars: nextBase.stars,
+        image_url: nextBase.image_url,
+      };
+    }
+  }
+
+  const candidates: Array<{
+    natStars: number;
+    gift: GiftCatalogItem;
+    model: ModelDef;
+    backdrop: BackdropDef;
+  }> = [];
+  for (const g of UPGRADABLE_GIFTS) {
+    const models = MODELS_BY_GIFT[g.key] || [];
+    if (models.length === 0) continue;
+    const mdef = models[Math.abs(seed) % models.length];
+    for (const bdef of BACKDROPS) {
+      candidates.push({
+        natStars: calcUpgradedStars(g.key, mdef, bdef),
+        gift: g,
+        model: mdef,
+        backdrop: bdef,
+      });
+    }
+  }
+  candidates.sort((a, b) => a.natStars - b.natStars);
+  const minFloor = !sourceIsUpgraded ? 400_000 : Math.max(150_000, sourceStars);
+  const rewardStars = Math.max(minFloor, Math.round(targetValue / 5000) * 5000);
+  const chosen = candidates.reduce((best, cur) =>
+    Math.abs(cur.natStars - rewardStars) < Math.abs(best.natStars - rewardStars) ? cur : best
+  );
+  return {
+    is_upgraded: true,
+    gift_key: chosen.gift.key,
+    name: chosen.gift.name,
+    title: chosen.model.name,
+    model_name: chosen.model.name,
+    backdrop_key: chosen.backdrop.key,
+    backdrop_name: chosen.backdrop.name,
+    backdrop_center_hex: chosen.backdrop.center_hex,
+    backdrop_edge_hex: chosen.backdrop.edge_hex,
+    stars: rewardStars,
+    image_url: chosen.model.image_url,
+  };
+}
+
 function settleRocketBet(bet: RocketBet, mult: number) {
   const u = getOrCreatePreviewUser(bet.user_id);
   if (bet.stake_type === 'stars') {
@@ -496,34 +599,41 @@ function settleRocketBet(bet: RocketBet, mult: number) {
   const item = u.collection.find((x) => x.id === bet.collection_item_id);
   if (item) {
     item.is_listed = 0;
-    if (mult >= (bet.target_mult || 999)) {
-      const targetKey = bet.target_gift_key || 'pepe_heart';
-      const targetGift = UPGRADABLE_GIFTS.find((g) => g.key === targetKey) || UPGRADABLE_GIFTS[0];
-      const mdef = (MODELS_BY_GIFT[targetKey] || []).find((m) => m.name === bet.target_model_name) || MODELS_BY_GIFT[targetKey]?.[0];
-      const bdef = BACKDROPS.find((b) => b.key === bet.target_backdrop_key) || BACKDROPS[0];
-      item.gift_key = targetKey;
-      item.name = targetGift.name;
-      item.base_stars = targetGift.base_stars;
+    const achievedVal = Math.round(bet.stake_stars * mult);
+    const reward = resolveAutoRocketNft(achievedVal, bet.stake_stars, Boolean(bet.source_is_upgraded), item.id);
+    item.gift_key = reward.gift_key;
+    item.name = reward.name;
+    if (reward.is_upgraded) {
       item.is_upgraded = true;
-      item.model_name = mdef?.name || 'Classic';
-      item.backdrop_key = bdef.key;
-      item.backdrop_name = bdef.name;
-      item.backdrop_center_hex = bdef.center_hex;
-      item.backdrop_edge_hex = bdef.edge_hex;
-      item.display_stars = bet.target_stars || item.display_stars;
+      item.model_name = reward.model_name;
+      item.backdrop_key = reward.backdrop_key;
+      item.backdrop_name = reward.backdrop_name;
+      item.backdrop_center_hex = reward.backdrop_center_hex;
+      item.backdrop_edge_hex = reward.backdrop_edge_hex;
+      item.display_stars = reward.stars;
       item.upgrade_num = nextUpgradeNum++;
-      item.image_url = mdef?.image_url || targetGift.image_url;
-      item.base_image_url = targetGift.image_url;
+      item.image_url = reward.image_url;
+      const gMeta = UPGRADABLE_GIFTS.find((g) => g.key === reward.gift_key);
+      item.base_image_url = gMeta?.image_url || reward.image_url;
       u.xp += 3500;
-      bet.status = 'won';
-      bet.cashout_mult = Number(mult.toFixed(2));
-      bet.payout_stars = item.display_stars;
-      return { won: true, payout_stars: item.display_stars, upgraded: true };
+    } else {
+      item.is_upgraded = false;
+      item.model_name = null;
+      item.backdrop_key = null;
+      item.backdrop_name = null;
+      item.backdrop_center_hex = null;
+      item.backdrop_edge_hex = null;
+      item.base_stars = reward.stars;
+      item.display_stars = reward.stars;
+      item.image_url = reward.image_url;
+      item.base_image_url = reward.image_url;
+      u.xp += 900;
     }
     bet.status = 'won';
     bet.cashout_mult = Number(mult.toFixed(2));
-    bet.payout_stars = item.display_stars;
-    return { won: true, payout_stars: item.display_stars, upgraded: false };
+    bet.payout_stars = reward.stars;
+    bet.target_gift_title = reward.title;
+    return { won: true, payout_stars: reward.stars, upgraded: reward.is_upgraded, reward_name: reward.title };
   }
   return { won: false, payout_stars: 0, upgraded: false };
 }
@@ -644,6 +754,7 @@ async function startServer() {
       collection: u.collection,
       catalog: {
         upgradable_gifts: UPGRADABLE_GIFTS,
+        base_gifts: BASE_GIFTS,
         models_by_gift: MODELS_BY_GIFT,
         backdrops: BACKDROPS,
         ton_star_rate: TON_STAR_RATE,
@@ -803,15 +914,15 @@ async function startServer() {
       name: cleanName,
       ticker,
       image_url: imageB64,
-      reserve_ton: 250,
-      reserve_token: 1000000,
-      total_supply: 1000000,
-      price_ton: 0.00025,
-      market_cap_ton: 250,
+      reserve_ton: 20000,
+      reserve_token: 100000000,
+      total_supply: 100000000,
+      price_ton: 0.0002,
+      market_cap_ton: 20000,
       volume_24h_ton: 0,
       holders_count: 1,
       created_ts: nowSec,
-      candles: [{ time: bucket, open: 0.00025, high: 0.00025, low: 0.00025, close: 0.00025, volume: 0 }],
+      candles: [{ time: bucket, open: 0.0002, high: 0.0002, low: 0.0002, close: 0.0002, volume: 0 }],
       trades: [],
       holdings: new Map(),
     };
@@ -824,6 +935,7 @@ async function startServer() {
     const coin = memecoins.get(Number(req.params.id));
     if (!coin) return res.status(404).json({ ok: false, error: 'Монета не найдена.' });
     const side = String(req.body?.side || '');
+    const unit = String(req.body?.unit || 'ton');
     const amount = Number(req.body?.amount || 0);
     if (!(amount > 0)) return res.status(400).json({ ok: false, error: 'Укажите сумму больше 0.' });
 
@@ -832,15 +944,36 @@ async function startServer() {
     const bucket = nowSec - (nowSec % 60);
     let tonVol = 0;
     let tokDelta = 0;
+    let feeTon = 0;
+    let grossTonOut = 0;
 
     if (side === 'buy') {
-      const tonIn = Number(amount.toFixed(6));
-      if (tonIn < 0.01) return res.status(400).json({ ok: false, error: 'Минимальная покупка — 0.01 TON.' });
-      if (u.balance_tons + 1e-9 < tonIn) return res.status(400).json({ ok: false, error: 'Недостаточно TON на балансе.' });
-      const effectiveTon = tonIn * 0.99;
-      const newResTon = coin.reserve_ton + effectiveTon;
-      const newResTok = kConst / newResTon;
-      const tokensOut = Math.max(0, coin.reserve_token - newResTok);
+      let tonIn = 0;
+      let tokensOut = 0;
+      let newResTon = coin.reserve_ton;
+      let newResTok = coin.reserve_token;
+      if (unit === 'tokens') {
+        tokensOut = amount;
+        if (tokensOut < 1) return res.status(400).json({ ok: false, error: 'Минимальная покупка — 1 токен.' });
+        if (tokensOut >= coin.reserve_token * 0.99) {
+          return res.status(400).json({ ok: false, error: 'Нельзя выкупить более 99% пула за одну сделку.' });
+        }
+        newResTok = coin.reserve_token - tokensOut;
+        newResTon = kConst / newResTok;
+        tonIn = Number(Math.max(0, newResTon - coin.reserve_ton).toFixed(6));
+        if (tonIn < 0.0001) return res.status(400).json({ ok: false, error: 'Слишком маленькая покупка.' });
+        if (u.balance_tons + 1e-9 < tonIn) {
+          return res.status(400).json({ ok: false, error: `Недостаточно TON на балансе (нужно ${tonIn.toFixed(4)} TON).` });
+        }
+      } else {
+        tonIn = Number(amount.toFixed(6));
+        if (tonIn < 0.01) return res.status(400).json({ ok: false, error: 'Минимальная покупка — 0.01 TON.' });
+        if (u.balance_tons + 1e-9 < tonIn) return res.status(400).json({ ok: false, error: 'Недостаточно TON на балансе.' });
+        const effectiveTon = tonIn * 0.99;
+        newResTon = coin.reserve_ton + effectiveTon;
+        newResTok = kConst / newResTon;
+        tokensOut = Math.max(0, coin.reserve_token - newResTok);
+      }
       coin.reserve_ton = newResTon;
       coin.reserve_token = newResTok;
       coin.price_ton = newResTon / newResTok;
@@ -855,7 +988,9 @@ async function startServer() {
       const tokIn = Math.min(amount, owned);
       const newResTok = coin.reserve_token + tokIn;
       const newResTon = kConst / newResTok;
-      const tonOut = Number((Math.max(0, coin.reserve_ton - newResTon) * 0.99).toFixed(6));
+      grossTonOut = Math.max(0, coin.reserve_ton - newResTon);
+      feeTon = Number((grossTonOut * 0.15).toFixed(6));
+      const tonOut = Number((grossTonOut * 0.85).toFixed(6));
       if (tonOut <= 0) return res.status(400).json({ ok: false, error: 'Слишком маленькое количество.' });
       coin.reserve_ton = newResTon;
       coin.reserve_token = newResTok;
@@ -910,6 +1045,10 @@ async function startServer() {
     res.json({
       ok: true,
       balance_tons: u.balance_tons,
+      ton_amount: Number(tonVol.toFixed(6)),
+      gross_ton_out: Number(grossTonOut.toFixed(6)),
+      fee_ton: feeTon,
+      tokens_delta: Number(tokDelta.toFixed(4)),
       coin: summary,
       candles: coin.candles.slice(-240),
       trades: coin.trades.slice(0, 30),
@@ -951,14 +1090,6 @@ async function startServer() {
       const item = u.collection.find((x) => x.id === itemId);
       if (!item) return res.status(400).json({ ok: false, error: 'NFT не найден в коллекции.' });
       if (item.is_listed !== 0) return res.status(400).json({ ok: false, error: 'Этот NFT уже занят.' });
-      const targetKey = String(req.body?.target_gift_key || 'pepe_heart');
-      const targetGift = UPGRADABLE_GIFTS.find((g) => g.key === targetKey);
-      if (!targetGift) return res.status(400).json({ ok: false, error: 'Выберите доступную цель апгрейда.' });
-      const mlist = MODELS_BY_GIFT[targetKey] || [];
-      const mdef = mlist.find((m) => m.name === req.body?.target_model_name) || mlist[0] || { name: 'Classic', filename: '', chance_pct: 2, price_mult: 1.1, image_url: targetGift.image_url };
-      const bdef = BACKDROPS.find((b) => b.key === req.body?.target_backdrop_key) || BACKDROPS[BACKDROPS.length - 1];
-      const targetStars = calcUpgradedStars(targetKey, mdef, bdef);
-      const reqMult = Math.max(1.35, Number(((targetStars / Math.max(1, item.display_stars)) * ROCKET_UPGRADE_MULT_PENALTY).toFixed(2)));
       item.is_listed = 2;
       rocket.bets.set(u.user_id, {
         user_id: u.user_id,
@@ -967,15 +1098,12 @@ async function startServer() {
         stake_type: 'nft',
         stake_stars: item.display_stars,
         collection_item_id: item.id,
-        item_name: item.name,
+        item_name: item.model_name || item.name,
         item_image_url: item.image_url,
-        target_gift_key: targetKey,
-        target_gift_title: targetGift.title,
-        target_model_name: mdef.name,
-        target_backdrop_key: bdef.key,
-        target_stars: targetStars,
-        target_mult: reqMult,
-        auto_cashout: reqMult,
+        source_is_upgraded: item.is_upgraded,
+        target_gift_title: 'Авто-апгрейд NFT',
+        target_mult: 1.25,
+        auto_cashout: null,
         status: 'active',
         cashout_mult: null,
         payout_stars: 0,
@@ -992,8 +1120,8 @@ async function startServer() {
     if (rocket.phase !== 'flying') return res.status(400).json({ ok: false, error: 'Раунд сейчас не в полёте.' });
     const bet = rocket.bets.get(u.user_id);
     if (!bet || bet.status !== 'active') return res.status(400).json({ ok: false, error: 'Нет активной ставки.' });
-    if (bet.stake_type === 'nft' && rocket.multiplier < 1.3) {
-      return res.status(400).json({ ok: false, error: 'NFT можно забрать начиная с x1.30.' });
+    if (bet.stake_type === 'nft' && rocket.multiplier < 1.25) {
+      return res.status(400).json({ ok: false, error: 'NFT можно забрать начиная с x1.25.' });
     }
     const result = settleRocketBet(bet, rocket.multiplier);
     broadcastWS('rocket_state', getRocketPublicState());

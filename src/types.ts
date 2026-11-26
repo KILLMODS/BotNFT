@@ -63,8 +63,16 @@ export interface BackdropDef {
   rarity_label: string;
 }
 
+export interface BaseGiftDef {
+  key: string;
+  name: string;
+  stars: number;
+  image_url: string;
+}
+
 export interface CatalogData {
   upgradable_gifts: GiftCatalogItem[];
+  base_gifts?: BaseGiftDef[];
   models_by_gift: Record<string, ModelDef[]>;
   backdrops: BackdropDef[];
   ton_star_rate: number;
@@ -82,6 +90,7 @@ export interface RocketBet {
   stake_stars: number;
   item_name?: string;
   item_image_url?: string;
+  source_is_upgraded?: boolean;
   target_gift_title?: string;
   target_mult?: number;
   auto_cashout?: number | null;

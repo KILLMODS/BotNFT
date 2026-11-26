@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, Check, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, Gauge, Sparkles, X, Zap } from 'lucide-react';
 import { apiRequest, formatStars, getTelegramWebApp, resolveAssetUrl } from '../api';
 import type { CatalogData, CollectionItem, UserProfile } from '../types';
 
@@ -28,6 +28,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
     catalog.backdrops[0]?.key || 'black'
   );
 
+  const [spinSpeed, setSpinSpeed] = useState<'slow' | 'fast'>('slow');
   const [pickerMode, setPickerMode] = useState<'source' | 'target' | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [needleDeg, setNeedleDeg] = useState(0);
@@ -72,6 +73,9 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
   const circumference = 2 * Math.PI * radius;
   const winArcLength = (chancePct / 100) * circumference;
 
+  const animDurationMs = spinSpeed === 'fast' ? 550 : 2600;
+  const fullSpinTurns = spinSpeed === 'fast' ? 360 * 2 : 360 * 5;
+
   const handleGiftChange = (key: string) => {
     setTargetGiftKey(key);
     const nextModels = catalog.models_by_gift[key] || [];
@@ -106,8 +110,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
       const targetAngle = res.won
         ? Math.max(8, Math.min(winAngleLimit - 6, (res.roll / 100) * 360))
         : Math.max(winAngleLimit + 12, Math.min(352, (res.roll / 100) * 360));
-      const fullTurns = 360 * 4;
-      setNeedleDeg((prev) => prev - (prev % 360) + fullTurns + targetAngle);
+      setNeedleDeg((prev) => prev - (prev % 360) + fullSpinTurns + targetAngle);
 
       setTimeout(() => {
         setSpinning(false);
@@ -123,7 +126,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
             ? `Успех! Получен улучшенный ${selectedTargetGift.title} (${formatStars(res.target_stars)} ⭐)`
             : `Не повезло (${res.roll.toFixed(1)}% при шансе ${res.chance_pct.toFixed(1)}%). Попробуйте снова.`,
         });
-      }, 2100);
+      }, animDurationMs + 80);
     } catch (err) {
       setSpinning(false);
       setErrorMsg(err instanceof Error ? err.message : 'Ошибка апгрейда');
@@ -132,63 +135,132 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
 
   return (
     <div className="space-y-4">
-      {/* Header Card */}
       <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-5">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
             <h2 className="text-lg font-bold tracking-tight text-white">Апгрейдер</h2>
-            <p className="text-xs text-zinc-400">
+            <p className="truncate text-xs text-zinc-400">
               Соберите редкий NFT с моделью и фоном
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-black/60 px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
-            Баланс: {formatStars(user.balance_stars)} ⭐
+          <div className="shrink-0 rounded-2xl border border-white/10 bg-black/60 px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
+            {formatStars(user.balance_stars)} ⭐
           </div>
         </div>
 
-        {/* Circular Wheel */}
-        <div className="mt-5 flex flex-col items-center">
-          <div className="relative flex h-56 w-56 items-center justify-center">
-            <svg viewBox="0 0 220 220" className="h-full w-full -rotate-90">
-              <circle
-                cx="110"
-                cy="110"
-                r={radius}
-                fill="none"
-                stroke="#27272a"
-                strokeWidth="16"
-              />
-              <circle
-                cx="110"
-                cy="110"
-                r={radius}
-                fill="none"
-                stroke="#ffffff"
-                strokeWidth="16"
-                strokeLinecap="round"
-                strokeDasharray={`${winArcLength} ${circumference}`}
-                className="transition-all duration-300"
-              />
+        {/* Speed Toggle */}
+        <div className="mt-4 flex items-center justify-center">
+          <div className="inline-grid grid-cols-2 gap-1 rounded-2xl border border-white/10 bg-zinc-950 p-1">
+            <button
+              type="button"
+              disabled={spinning}
+              onClick={() => setSpinSpeed('slow')}
+              className={`flex min-h-[36px] items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition-colors ${
+                spinSpeed === 'slow' ? 'bg-white text-black' : 'text-zinc-400'
+              }`}
+            >
+              <Gauge className="h-3.5 w-3.5" />
+              <span>Медленный</span>
+            </button>
+            <button
+              type="button"
+              disabled={spinning}
+              onClick={() => setSpinSpeed('fast')}
+              className={`flex min-h-[36px] items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition-colors ${
+                spinSpeed === 'fast' ? 'bg-white text-black' : 'text-zinc-400'
+              }`}
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>Быстрый</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Polished Circular Wheel */}
+        <div className="mt-4 flex flex-col items-center">
+          <div className="relative flex h-60 w-60 items-center justify-center">
+            <svg viewBox="0 0 240 240" className="h-full w-full">
+              {/* Rim Tick Marks */}
+              {Array.from({ length: 36 }).map((_, i) => {
+                const angle = (i * 10 * Math.PI) / 180;
+                const x1 = 120 + Math.cos(angle) * 107;
+                const y1 = 120 + Math.sin(angle) * 107;
+                const x2 = 120 + Math.cos(angle) * (i % 3 === 0 ? 114 : 111);
+                const y2 = 120 + Math.sin(angle) * (i % 3 === 0 ? 114 : 111);
+                return (
+                  <line
+                    key={i}
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke={i % 3 === 0 ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.1)'}
+                    strokeWidth={i % 3 === 0 ? '1.8' : '1'}
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+
+              {/* Base Track & Active Win Arc */}
+              <g transform="rotate(-90 120 120)">
+                <circle
+                  cx="120"
+                  cy="120"
+                  r={radius}
+                  fill="none"
+                  stroke="#18181b"
+                  strokeWidth="18"
+                />
+                <circle
+                  cx="120"
+                  cy="120"
+                  r={radius}
+                  fill="none"
+                  stroke="#27272a"
+                  strokeWidth="14"
+                />
+                <circle
+                  cx="120"
+                  cy="120"
+                  r={radius}
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                  strokeDasharray={`${winArcLength} ${circumference}`}
+                  className="transition-all duration-300"
+                />
+              </g>
             </svg>
 
-            {/* Needle */}
+            {/* Sharp Arrow Needle */}
             <div
-              className="pointer-events-none absolute inset-0 flex items-start justify-center transition-transform duration-[2000ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
-              style={{ transform: `rotate(${needleDeg}deg)` }}
+              className="pointer-events-none absolute inset-0 flex items-start justify-center"
+              style={{
+                transform: `rotate(${needleDeg}deg)`,
+                transitionProperty: 'transform',
+                transitionDuration: `${animDurationMs}ms`,
+                transitionTimingFunction: 'cubic-bezier(0.14, 0.92, 0.24, 1)',
+              }}
             >
-              <div className="mt-1.5 h-4 w-2 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.85)]" />
+              <svg width="24" height="30" viewBox="0 0 24 30" className="mt-0.5 drop-shadow-[0_0_8px_rgba(255,255,255,0.85)]">
+                <polygon points="12,26 4,4 20,4" fill="#ffffff" />
+                <circle cx="12" cy="7" r="2.2" fill="#000000" />
+              </svg>
             </div>
 
             {/* Center Telemetry */}
-            <div className="absolute flex flex-col items-center text-center">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+            <div className="absolute flex h-36 w-36 flex-col items-center justify-center rounded-full border border-white/10 bg-zinc-950/95 text-center shadow-inner">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-500">
                 Шанс
               </span>
               <span className="mt-0.5 font-mono-num text-3xl font-bold tracking-tight text-white">
                 {selectedSource ? `${chancePct.toFixed(1)}%` : '0%'}
               </span>
-              <span className="mt-1 font-mono-num text-[11px] text-zinc-400">
-                {selectedSource ? `${formatStars(selectedSource.display_stars)} → ${formatStars(estimatedTargetStars)} ⭐` : 'Выберите NFT'}
+              <span className="mt-1 max-w-[120px] truncate font-mono-num text-[10px] text-zinc-400">
+                {selectedSource
+                  ? `${formatStars(selectedSource.display_stars)} → ${formatStars(estimatedTargetStars)}`
+                  : 'Выберите NFT'}
               </span>
             </div>
           </div>
@@ -218,7 +290,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
             type="button"
             disabled={spinning}
             onClick={() => setPickerMode('source')}
-            className="flex min-h-[126px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+            className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
           >
             <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400">
               <span>Ваш NFT</span>
@@ -250,7 +322,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
             type="button"
             disabled={spinning}
             onClick={() => setPickerMode('target')}
-            className="flex min-h-[126px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+            className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
           >
             <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400">
               <span>Цель (NFT + Фон)</span>
@@ -363,7 +435,6 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                 )
               ) : (
                 <>
-                  {/* Target Gift Category */}
                   <div>
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
                       1. Тип подарка
@@ -394,7 +465,6 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     </div>
                   </div>
 
-                  {/* Target Model */}
                   <div>
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
                       2. Модель ({modelsForTarget.length})
@@ -432,7 +502,6 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     </div>
                   </div>
 
-                  {/* Target Backdrop */}
                   <div>
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
                       3. Фон

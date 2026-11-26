@@ -6,3 +6,14 @@ coverage/
 *.log
 .env*
 !.env.example
+__pycache__/
+*.pyc
+base.db*
+Lol-main/base.db*
+firebase-service-account.json
+Lol-main/firebase-service-account.json
+firebase_credentials.json
+Lol-main/firebase_credentials.json
+*firebase*adminsdk*.json
+*proar-5a642*.json
+public/assets/aistudio/
