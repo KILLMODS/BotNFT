@@ -1,0 +1,6 @@
+{
+  "name": "New NFT Mini App",
+  "description": "Telegram Mini App для New NFT: профиль, апгрейдер, онлайн-ракетка и криптобиржа мемкоинов.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
