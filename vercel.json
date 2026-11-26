@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "http://bot-1794151795-2693-black-kot198.bothost.tech:3000/api/$1"
+      "destination": "https://bot-1794151795-2693-black-kot198.bothost.tech/api/$1"
     },
     {
       "source": "/(.*)",
