@@ -34,6 +34,14 @@ export function resolveWsUrl(): string {
     const wsBase = base.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
     return `${wsBase}/ws`;
   }
+  if (
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1' &&
+    !window.location.hostname.endsWith('.run.app')
+  ) {
+    return 'wss://bot-1794151795-2693-black-kot198.bothost.tech/ws';
+  }
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/ws`;
 }
