@@ -132,6 +132,42 @@ CLAN_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 UI_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 AVATARS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+def _load_local_runtime_config() -> None:
+    """Подгружает локальные .env или config.json (если есть рядом со скриптом), без хранения секретов в коде."""
+    for env_path in (BASE_DIR / ".env", BASE_DIR.parent / ".env"):
+        if env_path.exists() and env_path.is_file():
+            try:
+                for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and v:
+                        os.environ.setdefault(k, v)
+            except Exception:
+                pass
+    cfg_path = BASE_DIR / "config.json"
+    if cfg_path.exists() and cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            if isinstance(cfg, dict):
+                for key in ("BOT_TOKEN", "MINI_APP_URL", "MINI_APP_HOST", "MINI_APP_PORT"):
+                    val = cfg.get(key) or cfg.get(key.lower())
+                    if val:
+                        os.environ.setdefault(key, str(val).strip())
+                fb_val = cfg.get("firebase_credentials") or cfg.get("FIREBASE_CREDENTIALS_JSON")
+                if isinstance(fb_val, dict):
+                    os.environ.setdefault("FIREBASE_CREDENTIALS_JSON", json.dumps(fb_val))
+                elif isinstance(fb_val, str) and fb_val.strip():
+                    os.environ.setdefault("FIREBASE_CREDENTIALS_JSON", fb_val.strip())
+        except Exception:
+            pass
+
+
+_load_local_runtime_config()
+
 BOT_TOKEN = (os.environ.get("BOT_TOKEN") or "").strip()
 SUPPORT_URL = os.environ.get("SUPPORT_URL", "https://t.me/mkrartem")
 SUPPORT_HANDLE = "@mkrartem"
@@ -19188,6 +19224,7 @@ def get_mini_app_catalog() -> dict:
                 "filename": m.filename,
                 "chance_pct": m.chance_pct,
                 "price_mult": m.price_mult,
+                "color_family": MODEL_COLOR_FAMILIES.get(m.name, ""),
                 "image_url": f"/api/assets/model/{urllib.parse.quote(k)}/{urllib.parse.quote(m.filename)}",
             }
             for m in get_models_for_gift(k)
@@ -19201,6 +19238,7 @@ def get_mini_app_catalog() -> dict:
             "edge_hex": b.edge_hex,
             "price_mult": b.price_mult,
             "rarity_label": b.rarity_label,
+            "color_family": BACKDROP_COLOR_FAMILIES.get(b.key, ""),
         }
         for b in PLUSHPEPE_BACKDROPS
     ]
@@ -19222,6 +19260,7 @@ def get_mini_app_catalog() -> dict:
         "memecoin_min_level": MEMECOIN_MIN_LEVEL,
         "memecoin_create_ton_cost": MEMECOIN_CREATE_TON_COST,
         "upgrader_chance_factor": UPGRADER_CHANCE_FACTOR,
+        "mono_price_mult": MONO_PRICE_MULT,
         "rocket_upgrade_mult_penalty": ROCKET_UPGRADE_MULT_PENALTY,
     }
 
@@ -19275,6 +19314,9 @@ def miniapp_upgrade_item_db(
         model_def, backdrop_def, target_stars, chance_pct = compute_upgrader_target_and_chance(
             source_val, canon_target, target_model_name, target_backdrop_key, b_val
         )
+        if target_stars <= source_val:
+            conn.rollback()
+            return False, "Целевой NFT должен быть дороже вашего текущего NFT.", {}
         roll = round(random.random() * 100.0, 2)
         won = roll < chance_pct
 
@@ -19555,7 +19597,7 @@ def get_memecoin_detail_db(coin_id: int, user_id: int = 0) -> Optional[dict]:
 
 
 def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit: str = "ton") -> Tuple[bool, str, dict]:
-    if amount <= 0:
+    if not math.isfinite(amount) or amount <= 0:
         return False, "Укажите сумму больше 0.", {}
     conn = db_connect()
     try:
@@ -19570,10 +19612,11 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
             return False, "Пользователь не найден.", {}
 
         cur_tons = float(u["balance_tons"] or 0.0)
-        res_ton = float(coin["reserve_ton"])
-        res_tok = float(coin["reserve_token"])
-        total_supply = float(coin["total_supply"])
-        k_const = res_ton * res_tok
+        res_ton = float(coin["reserve_ton"] or 0.0)
+        res_tok = float(coin["reserve_token"] or 0.0)
+        total_supply = float(coin["total_supply"] or 100_000_000.0)
+        cur_price = max(0.00001, float(coin["price_ton"] or 0.0002))
+        slope = 0.0002 / max(100_000_000.0, total_supply)
         now_ts = int(time.time())
         bucket_ts = now_ts - (now_ts % 60)
         fee_ton = 0.0
@@ -19585,15 +19628,8 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
                 if tokens_out < 1.0:
                     conn.rollback()
                     return False, "Минимальная покупка — 1 токен.", {}
-                if tokens_out >= res_tok * 0.99:
-                    conn.rollback()
-                    return False, "Нельзя выкупить более 99% пула за одну сделку.", {}
-                new_res_tok = res_tok - tokens_out
-                new_res_ton = k_const / new_res_tok
-                ton_in = round(max(0.0, new_res_ton - res_ton), 6)
-                if ton_in < 0.0001:
-                    conn.rollback()
-                    return False, "Слишком маленькая покупка.", {}
+                new_price = round(max(0.00001, cur_price + slope * tokens_out), 8)
+                ton_in = round(max(0.000001, tokens_out * (cur_price + new_price) * 0.5), 6)
                 if cur_tons + 1e-9 < ton_in:
                     conn.rollback()
                     return False, f"Недостаточно TON на балансе (нужно {ton_in:.4f} TON).", {}
@@ -19605,15 +19641,15 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
                 if cur_tons + 1e-9 < ton_in:
                     conn.rollback()
                     return False, "Недостаточно TON на балансе.", {}
-                effective_ton = ton_in * 0.99
-                new_res_ton = res_ton + effective_ton
-                new_res_tok = k_const / new_res_ton
-                tokens_out = max(0.0, res_tok - new_res_tok)
+                disc = cur_price * cur_price + 2.0 * slope * ton_in
+                tokens_out = max(0.0, (-cur_price + math.sqrt(disc)) / slope)
                 if tokens_out <= 0:
                     conn.rollback()
                     return False, "Слишком маленькая покупка.", {}
+                new_price = round(max(0.00001, cur_price + slope * tokens_out), 8)
 
-            new_price = new_res_ton / new_res_tok
+            new_res_ton = round(res_ton + ton_in, 6)
+            new_res_tok = max(1.0, res_tok)
             new_mcap = new_price * total_supply
             new_user_tons = round(max(0.0, cur_tons - ton_in), 6)
 
@@ -19633,15 +19669,16 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
                 conn.rollback()
                 return False, "Недостаточно токенов для продажи.", {}
             tokens_in = min(tokens_in, owned)
-            new_res_tok = res_tok + tokens_in
-            new_res_ton = k_const / new_res_tok
-            gross_ton_out = max(0.0, res_ton - new_res_ton)
+            min_floor = 0.00005
+            new_price = round(max(min_floor, cur_price - slope * tokens_in), 8)
+            gross_ton_out = max(0.0, tokens_in * (cur_price + new_price) * 0.5)
             fee_ton = round(gross_ton_out * 0.15, 6)
             ton_out = round(gross_ton_out * 0.85, 6)
-            if ton_out <= 0:
+            if ton_out < 0.000001:
                 conn.rollback()
                 return False, "Слишком маленькое количество для продажи.", {}
-            new_price = new_res_ton / new_res_tok
+            new_res_ton = round(max(0.0, res_ton - ton_out), 6)
+            new_res_tok = max(1.0, res_tok)
             new_mcap = new_price * total_supply
             new_user_tons = round(cur_tons + ton_out, 6)
             rem_tokens = max(0.0, owned - tokens_in)
@@ -19681,7 +19718,7 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
                 "SELECT close_ton FROM memecoin_candles WHERE coin_id=? ORDER BY bucket_ts DESC LIMIT 1",
                 (coin_id,),
             ).fetchone()
-            open_p = float(last_c["close_ton"]) if last_c else float(coin["price_ton"])
+            open_p = float(last_c["close_ton"]) if last_c else cur_price
             conn.execute(
                 "INSERT INTO memecoin_candles (coin_id, bucket_ts, open_ton, high_ton, low_ton, close_ton, volume_ton) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -19700,6 +19737,86 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
             "gross_ton_out": round(gross_ton_out, 6),
             "fee_ton": round(fee_ton, 6),
             "tokens_delta": round(tok_delta, 4),
+            **(detail or {}),
+        }
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def transfer_memecoin_db(sender_id: int, coin_id: int, recipient_raw: str, amount: float) -> Tuple[bool, str, dict]:
+    if not math.isfinite(amount) or amount <= 0:
+        return False, "Укажите количество токенов больше 0.", {}
+    target_str = (recipient_raw or "").strip()
+    if not target_str:
+        return False, "Укажите @username или Telegram ID получателя.", {}
+
+    conn = db_connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        coin = conn.execute("SELECT * FROM memecoins WHERE id=?", (coin_id,)).fetchone()
+        if not coin:
+            conn.rollback()
+            return False, "Монета не найдена.", {}
+
+        h = conn.execute("SELECT amount FROM memecoin_holdings WHERE user_id=? AND coin_id=?", (sender_id, coin_id)).fetchone()
+        owned = float(h["amount"] or 0.0) if h else 0.0
+        if owned + 1e-6 < amount:
+            conn.rollback()
+            return False, "Недостаточно токенов для перевода.", {}
+        send_amt = min(float(amount), owned)
+        if send_amt < 0.0001:
+            conn.rollback()
+            return False, "Слишком маленькое количество для перевода.", {}
+
+        clean_handle = target_str.lstrip("@").strip()
+        rec_row = None
+        if clean_handle.isdigit():
+            rid = int(clean_handle)
+            rec_row = conn.execute(
+                "SELECT user_id, id_num, username, first_name FROM users WHERE user_id=? OR id_num=? "
+                "ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1",
+                (rid, rid, rid),
+            ).fetchone()
+        if rec_row is None and clean_handle:
+            rec_row = conn.execute(
+                "SELECT user_id, id_num, username, first_name FROM users WHERE LOWER(username)=LOWER(?) LIMIT 1",
+                (clean_handle,),
+            ).fetchone()
+
+        if not rec_row:
+            conn.rollback()
+            return False, "Получатель не найден. Пользователь должен хотя бы раз запустить бота.", {}
+
+        rec_uid = int(rec_row["user_id"])
+        if rec_uid == sender_id:
+            conn.rollback()
+            return False, "Нельзя перевести монеты самому себе.", {}
+
+        rem_sender = round(max(0.0, owned - send_amt), 6)
+        conn.execute("UPDATE memecoin_holdings SET amount=? WHERE user_id=? AND coin_id=?", (rem_sender, sender_id, coin_id))
+        conn.execute(
+            "INSERT INTO memecoin_holdings (user_id, coin_id, amount, avg_buy_price_ton) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id, coin_id) DO UPDATE SET amount = memecoin_holdings.amount + excluded.amount",
+            (rec_uid, coin_id, send_amt, float(coin["price_ton"] or 0.0002)),
+        )
+        holders_cnt = int(
+            conn.execute("SELECT COUNT(*) AS c FROM memecoin_holdings WHERE coin_id=? AND amount > 0.0001", (coin_id,)).fetchone()["c"] or 0
+        )
+        conn.execute("UPDATE memecoins SET holders_count=? WHERE id=?", (max(1, holders_cnt), coin_id))
+        conn.commit()
+
+        rec_label = f"@{rec_row['username']}" if rec_row["username"] else (rec_row["first_name"] or f"ID {rec_uid}")
+        detail = get_memecoin_detail_db(coin_id, user_id=sender_id)
+        return True, "OK", {
+            "transferred_amount": round(send_amt, 4),
+            "recipient_user_id": rec_uid,
+            "recipient_label": rec_label,
             **(detail or {}),
         }
     except Exception:
@@ -19916,6 +20033,7 @@ class _RocketEngine:
                     conn.commit()
                     img_u, _ = _item_image_urls(item)
                     sg = GIFTS_BY_KEY.get(canonical_gift_key(item["gift_key"]))
+                    ac_nft = round(float(auto_cashout), 2) if auto_cashout and float(auto_cashout) >= 1.25 else None
                     self.bets[user_id] = {
                         "user_id": user_id,
                         "name": display_name,
@@ -19928,7 +20046,7 @@ class _RocketEngine:
                         "source_is_upgraded": source_is_up,
                         "target_gift_title": "Авто-апгрейд NFT",
                         "target_mult": 1.25,
-                        "auto_cashout": None,
+                        "auto_cashout": ac_nft,
                         "status": "active",
                         "cashout_mult": None,
                         "payout_stars": 0,
@@ -20286,6 +20404,35 @@ async def _api_coin_trade(request):
                 await ws.send_str(msg_ws)
             except Exception:
                 _WS_CLIENTS.discard(ws)
+    fresh_u = get_or_create_user(int(u["user_id"]), "", "")
+    return _json_response(request, {"ok": True, **res, "user": serialize_user_profile(fresh_u)})
+
+
+async def _api_coin_transfer(request):
+    u = await _auth_user_from_request(request)
+    if not u:
+        return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
+    coin_id = int(request.match_info["id"])
+    body = await _read_json_body(request)
+    try:
+        amount = float(body.get("amount") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректное количество."}, status=400)
+    ok, msg, res = transfer_memecoin_db(
+        int(u["user_id"]),
+        coin_id,
+        str(body.get("recipient") or ""),
+        amount,
+    )
+    if not ok:
+        return _json_response(request, {"ok": False, "error": msg}, status=400)
+    if _WS_CLIENTS and res.get("coin"):
+        msg_ws = json.dumps({"type": "coin_update", "data": res["coin"]}, ensure_ascii=False)
+        for ws in list(_WS_CLIENTS):
+            try:
+                await ws.send_str(msg_ws)
+            except Exception:
+                _WS_CLIENTS.discard(ws)
     return _json_response(request, {"ok": True, **res})
 
 
@@ -20405,6 +20552,7 @@ def build_miniapp_web_app():
     web_app.router.add_post("/api/coins/create", _api_coins_create)
     web_app.router.add_get(r"/api/coins/{id:\d+}", _api_coin_detail)
     web_app.router.add_post(r"/api/coins/{id:\d+}/trade", _api_coin_trade)
+    web_app.router.add_post(r"/api/coins/{id:\d+}/transfer", _api_coin_transfer)
     web_app.router.add_get("/api/rocket/state", _api_rocket_state)
     web_app.router.add_post("/api/rocket/bet", _api_rocket_bet)
     web_app.router.add_post("/api/rocket/cashout", _api_rocket_cashout)

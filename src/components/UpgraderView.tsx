@@ -1,13 +1,70 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Gauge, Sparkles, X, Zap } from 'lucide-react';
 import { apiRequest, formatStars, getTelegramWebApp, resolveAssetUrl } from '../api';
-import type { CatalogData, CollectionItem, UserProfile } from '../types';
+import type { BackdropDef, CatalogData, CollectionItem, GiftCatalogItem, ModelDef, UserProfile } from '../types';
 
 interface UpgraderViewProps {
   user: UserProfile;
   collection: CollectionItem[];
   catalog: CatalogData;
   onSync: (user: UserProfile, collection: CollectionItem[]) => void;
+}
+
+function calcUpgradedStars(
+  gift: GiftCatalogItem,
+  model: ModelDef | null,
+  backdrop: BackdropDef,
+  catalog: CatalogData,
+  valueBuffPct = 0
+): number {
+  const monoMult =
+    model?.color_family &&
+    backdrop.color_family &&
+    backdrop.key !== 'rainbow' &&
+    model.color_family === backdrop.color_family
+      ? catalog.mono_price_mult || 6
+      : 1;
+  const valMult = 1 + Math.max(0, valueBuffPct) / 100;
+  const base = gift.key === 'pepe_heart' ? gift.base_stars : gift.base_stars + gift.upgrade_cost;
+  const raw = base * backdrop.price_mult * (model ? model.price_mult : 1.1) * monoMult * valMult * 1.5;
+  if (gift.key === 'pepe_heart') return Math.max(750000, Math.round(raw / 10000) * 10000);
+  if (gift.key === 'trophy_cup') return Math.max(375000, Math.round(raw / 5000) * 5000);
+  if (gift.key === 'heart_lock_key' || gift.key === 'bonded_ring') return Math.max(225000, Math.round(raw / 5000) * 5000);
+  return Math.max(150000, Math.round(raw / 5000) * 5000);
+}
+
+function findCheapestValidCombo(
+  sourceStars: number,
+  catalog: CatalogData,
+  valueBuffPct: number,
+  onlyGiftKey?: string,
+  onlyModelName?: string
+): { giftKey: string; modelName: string; backdropKey: string; stars: number } | null {
+  let best: { giftKey: string; modelName: string; backdropKey: string; stars: number } | null = null;
+  const gifts = onlyGiftKey
+    ? catalog.upgradable_gifts.filter((g) => g.key === onlyGiftKey)
+    : catalog.upgradable_gifts;
+  for (const g of gifts) {
+    const models = catalog.models_by_gift[g.key] || [];
+    const filteredModels = onlyModelName ? models.filter((m) => m.name === onlyModelName) : models;
+    const modelList = filteredModels.length > 0 ? filteredModels : [null];
+    for (const m of modelList) {
+      for (const b of catalog.backdrops) {
+        const stars = calcUpgradedStars(g, m, b, catalog, valueBuffPct);
+        if (stars > sourceStars) {
+          if (!best || stars < best.stars) {
+            best = {
+              giftKey: g.key,
+              modelName: m?.name || '',
+              backdropKey: b.key,
+              stars,
+            };
+          }
+        }
+      }
+    }
+  }
+  return best;
 }
 
 export function UpgraderView({ user, collection, catalog, onSync }: UpgraderViewProps) {
@@ -31,6 +88,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
   const [spinSpeed, setSpinSpeed] = useState<'slow' | 'fast'>('slow');
   const [pickerMode, setPickerMode] = useState<'source' | 'target' | null>(null);
   const [spinning, setSpinning] = useState(false);
+  const [spinChancePct, setSpinChancePct] = useState<number | null>(null);
   const [needleDeg, setNeedleDeg] = useState(0);
   const [resultMsg, setResultMsg] = useState<{ won: boolean; text: string } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -49,29 +107,45 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
     catalog.backdrops.find((b) => b.key === targetBackdropKey) ||
     catalog.backdrops[0];
 
+  const sourceBuffPct = selectedSource?.buff_value_pct || 0;
+
   const estimatedTargetStars = useMemo(() => {
     if (!selectedTargetGift || !selectedBackdrop) return 0;
-    const base =
-      selectedTargetGift.key === 'pepe_heart'
-        ? selectedTargetGift.base_stars
-        : selectedTargetGift.base_stars + selectedTargetGift.upgrade_cost;
-    const modelMult = selectedModel ? selectedModel.price_mult : 1.1;
-    const buffMult = selectedSource ? 1 + (selectedSource.buff_value_pct || 0) / 100 : 1;
-    const raw = base * selectedBackdrop.price_mult * modelMult * buffMult * 1.5;
-    return Math.max(150000, Math.round(raw / 5000) * 5000);
-  }, [selectedTargetGift, selectedModel, selectedBackdrop, selectedSource]);
+    return calcUpgradedStars(selectedTargetGift, selectedModel, selectedBackdrop, catalog, sourceBuffPct);
+  }, [selectedTargetGift, selectedModel, selectedBackdrop, catalog, sourceBuffPct]);
+
+  const isTargetValid = Boolean(
+    selectedSource && estimatedTargetStars > selectedSource.display_stars
+  );
+
+  // Auto-snap to a valid target (> source.display_stars) whenever source NFT changes
+  useEffect(() => {
+    if (!selectedSource || spinning) return;
+    if (estimatedTargetStars <= selectedSource.display_stars) {
+      const valid =
+        findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, targetGiftKey, targetModelName) ||
+        findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, targetGiftKey) ||
+        findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct);
+      if (valid) {
+        setTargetGiftKey(valid.giftKey);
+        setTargetModelName(valid.modelName);
+        setTargetBackdropKey(valid.backdropKey);
+      }
+    }
+  }, [selectedSource?.id, selectedSource?.display_stars, estimatedTargetStars, catalog, sourceBuffPct, spinning, targetGiftKey, targetModelName]);
 
   const chancePct = useMemo(() => {
-    if (!selectedSource || estimatedTargetStars <= 0) return 0;
+    if (!selectedSource || estimatedTargetStars <= 0 || !isTargetValid) return 0;
     const raw = (selectedSource.display_stars / estimatedTargetStars) * 100;
     return Number(
       Math.max(1, Math.min(72, raw * (catalog.upgrader_chance_factor || 0.78))).toFixed(2)
     );
-  }, [selectedSource, estimatedTargetStars, catalog.upgrader_chance_factor]);
+  }, [selectedSource, estimatedTargetStars, isTargetValid, catalog.upgrader_chance_factor]);
 
+  const displayChancePct = spinning && spinChancePct !== null ? spinChancePct : chancePct;
   const radius = 92;
   const circumference = 2 * Math.PI * radius;
-  const winArcLength = (chancePct / 100) * circumference;
+  const winArcLength = (displayChancePct / 100) * circumference;
 
   const animDurationMs = spinSpeed === 'fast' ? 550 : 2600;
   const fullSpinTurns = spinSpeed === 'fast' ? 360 * 2 : 360 * 5;
@@ -79,11 +153,42 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
   const handleGiftChange = (key: string) => {
     setTargetGiftKey(key);
     const nextModels = catalog.models_by_gift[key] || [];
-    setTargetModelName(nextModels[0]?.name || '');
+    const nextM = nextModels[0] || null;
+    const nextG = catalog.upgradable_gifts.find((x) => x.key === key);
+    if (selectedSource && nextG && selectedBackdrop) {
+      const stars = calcUpgradedStars(nextG, nextM, selectedBackdrop, catalog, sourceBuffPct);
+      if (stars <= selectedSource.display_stars) {
+        const best = findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, key);
+        if (best) {
+          setTargetModelName(best.modelName);
+          setTargetBackdropKey(best.backdropKey);
+          return;
+        }
+      }
+    }
+    setTargetModelName(nextM?.name || '');
+  };
+
+  const handleModelChange = (mName: string) => {
+    setTargetModelName(mName);
+    if (selectedSource && selectedTargetGift && selectedBackdrop) {
+      const nextM = modelsForTarget.find((m) => m.name === mName) || null;
+      const stars = calcUpgradedStars(selectedTargetGift, nextM, selectedBackdrop, catalog, sourceBuffPct);
+      if (stars <= selectedSource.display_stars) {
+        const best = findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, selectedTargetGift.key, mName);
+        if (best) {
+          setTargetBackdropKey(best.backdropKey);
+        }
+      }
+    }
   };
 
   const handleUpgrade = async () => {
     if (!selectedSource || !selectedTargetGift || spinning) return;
+    if (!isTargetValid) {
+      setErrorMsg('Целевой NFT должен быть дороже вашего текущего NFT.');
+      return;
+    }
     setErrorMsg(null);
     setResultMsg(null);
     setSpinning(true);
@@ -106,14 +211,19 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
         }),
       });
 
+      setSpinChancePct(res.chance_pct);
       const winAngleLimit = (res.chance_pct / 100) * 360;
+      const rawRollAngle = (res.roll / 100) * 360;
       const targetAngle = res.won
-        ? Math.max(8, Math.min(winAngleLimit - 6, (res.roll / 100) * 360))
-        : Math.max(winAngleLimit + 12, Math.min(352, (res.roll / 100) * 360));
+        ? winAngleLimit <= 6
+          ? Math.max(0.8, Math.min(winAngleLimit - 0.8, winAngleLimit * 0.5))
+          : Math.max(2, Math.min(winAngleLimit - 2, rawRollAngle))
+        : Math.max(Math.min(358, winAngleLimit + 2.5), Math.min(358, rawRollAngle));
       setNeedleDeg((prev) => prev - (prev % 360) + fullSpinTurns + targetAngle);
 
       setTimeout(() => {
         setSpinning(false);
+        setSpinChancePct(null);
         onSync(res.user, res.collection);
         const nextAvail = res.collection.filter((c) => c.is_listed === 0);
         setSourceId(nextAvail[0]?.id || 0);
@@ -129,6 +239,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
       }, animDurationMs + 80);
     } catch (err) {
       setSpinning(false);
+      setSpinChancePct(null);
       setErrorMsg(err instanceof Error ? err.message : 'Ошибка апгрейда');
     }
   };
@@ -226,7 +337,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                   fill="none"
                   stroke="#ffffff"
                   strokeWidth="14"
-                  strokeLinecap="round"
+                  strokeLinecap="butt"
                   strokeDasharray={`${winArcLength} ${circumference}`}
                   className="transition-all duration-300"
                 />
@@ -255,7 +366,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                 Шанс
               </span>
               <span className="mt-0.5 font-mono-num text-3xl font-bold tracking-tight text-white">
-                {selectedSource ? `${chancePct.toFixed(1)}%` : '0%'}
+                {selectedSource ? `${displayChancePct.toFixed(1)}%` : '0%'}
               </span>
               <span className="mt-1 max-w-[120px] truncate font-mono-num text-[10px] text-zinc-400">
                 {selectedSource
@@ -364,12 +475,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
 
         <button
           type="button"
-          disabled={!selectedSource || spinning}
+          disabled={!selectedSource || !isTargetValid || spinning}
           onClick={handleUpgrade}
           className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-white text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-40"
         >
           <Sparkles className="h-4 w-4" />
-          <span>{spinning ? 'Крутим колесо...' : `Улучшить за шанс ${chancePct.toFixed(1)}%`}</span>
+          <span>
+            {spinning
+              ? 'Крутим колесо...'
+              : !isTargetValid && selectedSource
+              ? 'Выберите цель дороже вашего NFT'
+              : `Улучшить за шанс ${chancePct.toFixed(1)}%`}
+          </span>
         </button>
       </section>
 
@@ -442,12 +559,16 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                       {catalog.upgradable_gifts.map((g) => {
                         const active = g.key === targetGiftKey;
+                        const canReach = selectedSource
+                          ? Boolean(findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, g.key))
+                          : true;
                         return (
                           <button
                             key={g.key}
                             type="button"
+                            disabled={!canReach}
                             onClick={() => handleGiftChange(g.key)}
-                            className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-2xl border px-3.5 text-xs font-semibold ${
+                            className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-2xl border px-3.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
                                 ? 'border-white bg-white text-black'
                                 : 'border-white/10 bg-zinc-950 text-zinc-300'
@@ -472,12 +593,16 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
                       {modelsForTarget.map((m) => {
                         const active = m.name === selectedModel?.name;
+                        const canReach = selectedSource && selectedTargetGift
+                          ? Boolean(findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, selectedTargetGift.key, m.name))
+                          : true;
                         return (
                           <button
                             key={m.name}
                             type="button"
-                            onClick={() => setTargetModelName(m.name)}
-                            className={`flex min-h-[48px] items-center gap-2 rounded-2xl border p-2 text-left ${
+                            disabled={!canReach}
+                            onClick={() => handleModelChange(m.name)}
+                            className={`flex min-h-[48px] items-center gap-2 rounded-2xl border p-2 text-left disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
                                 ? 'border-white bg-zinc-800'
                                 : 'border-white/10 bg-zinc-950'
@@ -493,7 +618,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                                 {m.name}
                               </p>
                               <p className="font-mono-num text-[10px] text-zinc-400">
-                                x{m.price_mult}
+                                {canReach ? `x${m.price_mult}` : '≤ ваш NFT'}
                               </p>
                             </div>
                           </button>
@@ -509,12 +634,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
                       {catalog.backdrops.map((b) => {
                         const active = b.key === selectedBackdrop?.key;
+                        const comboStars =
+                          selectedTargetGift
+                            ? calcUpgradedStars(selectedTargetGift, selectedModel, b, catalog, sourceBuffPct)
+                            : 0;
+                        const isHigher = selectedSource ? comboStars > selectedSource.display_stars : true;
                         return (
                           <button
                             key={b.key}
                             type="button"
+                            disabled={!isHigher}
                             onClick={() => setTargetBackdropKey(b.key)}
-                            className={`flex min-h-[48px] items-center gap-2.5 rounded-2xl border p-2 text-left ${
+                            className={`flex min-h-[48px] items-center gap-2.5 rounded-2xl border p-2 text-left disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
                                 ? 'border-white bg-zinc-800'
                                 : 'border-white/10 bg-zinc-950'
@@ -531,7 +662,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                                 {b.name}
                               </p>
                               <p className="font-mono-num text-[10px] text-zinc-400">
-                                x{b.price_mult}
+                                {isHigher ? `${formatStars(comboStars)} ⭐` : '≤ ваш NFT'}
                               </p>
                             </div>
                           </button>
@@ -547,10 +678,13 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               <div className="border-t border-white/10 p-4">
                 <button
                   type="button"
+                  disabled={!isTargetValid}
                   onClick={() => setPickerMode(null)}
-                  className="h-12 w-full rounded-2xl bg-white text-sm font-bold text-black"
+                  className="h-12 w-full rounded-2xl bg-white text-sm font-bold text-black disabled:opacity-40"
                 >
-                  Готово · Шанс {chancePct.toFixed(1)}%
+                  {isTargetValid
+                    ? `Готово · Шанс ${chancePct.toFixed(1)}%`
+                    : 'Выберите цель дороже вашего NFT'}
                 </button>
               </div>
             )}

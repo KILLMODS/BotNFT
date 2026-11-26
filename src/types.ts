@@ -50,6 +50,7 @@ export interface ModelDef {
   filename: string;
   chance_pct: number;
   price_mult: number;
+  color_family?: string;
   image_url: string;
 }
 
@@ -61,6 +62,7 @@ export interface BackdropDef {
   edge_hex: string;
   price_mult: number;
   rarity_label: string;
+  color_family?: string;
 }
 
 export interface BaseGiftDef {
@@ -79,6 +81,7 @@ export interface CatalogData {
   memecoin_min_level: number;
   memecoin_create_ton_cost: number;
   upgrader_chance_factor: number;
+  mono_price_mult?: number;
   rocket_upgrade_mult_penalty: number;
 }
 

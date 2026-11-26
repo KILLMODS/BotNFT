@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Coins,
   Plus,
+  Send,
   ShieldAlert,
   Upload,
   X,
@@ -73,6 +74,12 @@ export function ExchangeView({
   const [tradeTokensAmt, setTradeTokensAmt] = useState<string>('1000');
   const [tradeBusy, setTradeBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Transfer Memecoin modal
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferRecipient, setTransferRecipient] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferBusy, setTransferBusy] = useState(false);
 
   // Create Memecoin modal
   const [createOpen, setCreateOpen] = useState(false);
@@ -202,7 +209,7 @@ export function ExchangeView({
     }
   };
 
-  // AMM exact quote calculation for token-based buy & sell
+  // Smooth uncapped bonding curve quote calculation for token-based buy & sell
   const tradeQuote = useMemo(() => {
     if (!coinDetail) return null;
     const c = coinDetail.coin;
@@ -210,20 +217,15 @@ export function ExchangeView({
     if (!Number.isFinite(tokQty) || tokQty <= 0) {
       return { valid: false, reason: 'Введите количество токенов больше 0', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
     }
-    const resTon = c.reserve_ton;
-    const resTok = c.reserve_token;
-    const k = resTon * resTok;
+    const curPrice = Math.max(0.00001, c.price_ton);
+    const slope = 0.0002 / Math.max(100_000_000, c.total_supply);
 
     if (tradeSide === 'buy') {
       if (tokQty < 1) {
         return { valid: false, reason: 'Минимум — 1 токен', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
       }
-      if (tokQty >= resTok * 0.99) {
-        return { valid: false, reason: 'Превышен доступный пул ликвидности (макс. 99%)', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
-      }
-      const newResTok = resTok - tokQty;
-      const newResTon = k / newResTok;
-      const tonCost = Math.max(0, newResTon - resTon);
+      const newPrice = Math.max(0.00001, curPrice + slope * tokQty);
+      const tonCost = Number(Math.max(0.000001, tokQty * (curPrice + newPrice) * 0.5).toFixed(6));
       if (tonCost > user.balance_tons + 1e-9) {
         return { valid: false, reason: `Недостаточно TON (нужно ${tonCost.toFixed(4)} TON)`, tonCost, grossTon: 0, feeTon: 0, netTon: 0 };
       }
@@ -232,12 +234,11 @@ export function ExchangeView({
       if (tokQty > c.my_balance + 1e-6) {
         return { valid: false, reason: 'Недостаточно токенов на балансе', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
       }
-      const newResTok = resTok + tokQty;
-      const newResTon = k / newResTok;
-      const grossTon = Math.max(0, resTon - newResTon);
+      const newPrice = Math.max(0.00005, curPrice - slope * tokQty);
+      const grossTon = Math.max(0, tokQty * (curPrice + newPrice) * 0.5);
       const feeTon = grossTon * 0.15;
       const netTon = grossTon * 0.85;
-      if (netTon <= 0.000001) {
+      if (netTon < 0.000001) {
         return { valid: false, reason: 'Слишком маленькое количество для продажи', tonCost: 0, grossTon, feeTon, netTon };
       }
       return { valid: true, reason: '', tonCost: 0, grossTon, feeTon, netTon };
@@ -265,6 +266,7 @@ export function ExchangeView({
         ton_amount?: number;
         fee_ton?: number;
         tokens_delta?: number;
+        user?: UserProfile;
         coin: MemecoinSummary;
         candles: CandleData[];
         trades: TradeData[];
@@ -276,18 +278,23 @@ export function ExchangeView({
           unit: 'tokens',
         }),
       });
-      onUserPatch({ balance_tons: res.balance_tons });
+      if (res.user) {
+        onUserPatch(res.user);
+      } else {
+        onUserPatch({ balance_tons: res.balance_tons });
+      }
       setCoinDetail({ coin: res.coin, candles: res.candles, trades: res.trades });
       setConfirmOpen(false);
       await onRefreshAll();
       getTelegramWebApp()?.HapticFeedback?.notificationOccurred('success');
+      const finalTon = Number(res.ton_amount ?? res.trades?.[0]?.ton_amount ?? (tradeSide === 'buy' ? tradeQuote?.tonCost : tradeQuote?.netTon) ?? 0);
       if (tradeSide === 'buy') {
         setNoticeMsg(
-          `Куплено ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} за ${(res.ton_amount || 0).toFixed(4)} TON`
+          `Куплено ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} за ${finalTon.toFixed(4)} TON`
         );
       } else {
         setNoticeMsg(
-          `Продано ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} · получено +${(res.ton_amount || 0).toFixed(4)} TON`
+          `Продано ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} · получено +${finalTon.toFixed(4)} TON`
         );
       }
     } catch (err) {
@@ -295,6 +302,55 @@ export function ExchangeView({
       setErrorMsg(err instanceof Error ? err.message : 'Ошибка сделки');
     } finally {
       setTradeBusy(false);
+    }
+  };
+
+  const handleTransferCoin = async () => {
+    if (!coinDetail || transferBusy) return;
+    const amt = Number(transferAmount || 0);
+    const rec = transferRecipient.trim();
+    if (!rec) {
+      setErrorMsg('Укажите @username или Telegram ID получателя.');
+      return;
+    }
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setErrorMsg('Укажите количество токенов больше 0.');
+      return;
+    }
+    if (amt > coinDetail.coin.my_balance + 1e-6) {
+      setErrorMsg('Недостаточно токенов на балансе.');
+      return;
+    }
+    setErrorMsg(null);
+    setNoticeMsg(null);
+    setTransferBusy(true);
+    try {
+      const res = await apiRequest<{
+        transferred_amount: number;
+        recipient_label: string;
+        coin: MemecoinSummary;
+        candles: CandleData[];
+        trades: TradeData[];
+      }>(`/api/coins/${coinDetail.coin.id}/transfer`, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipient: rec,
+          amount: amt,
+        }),
+      });
+      setCoinDetail({ coin: res.coin, candles: res.candles, trades: res.trades });
+      setTransferOpen(false);
+      setTransferRecipient('');
+      setTransferAmount('');
+      await onRefreshAll();
+      getTelegramWebApp()?.HapticFeedback?.notificationOccurred('success');
+      setNoticeMsg(
+        `Переведено ${formatCompactNum(res.transferred_amount, 2)} $${res.coin.ticker} → ${res.recipient_label}`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Не удалось выполнить перевод');
+    } finally {
+      setTransferBusy(false);
     }
   };
 
@@ -322,9 +378,24 @@ export function ExchangeView({
             <ArrowLeft className="h-4 w-4" />
             <span>К бирже</span>
           </button>
-          <span className="truncate rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 font-mono-num text-xs font-semibold text-zinc-200">
-            {formatTon(user.balance_tons, 2)} TON
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMsg(null);
+                setNoticeMsg(null);
+                setTransferAmount(c.my_balance > 0 ? String(Math.floor(c.my_balance)) : '');
+                setTransferOpen(true);
+              }}
+              className="flex min-h-[42px] items-center gap-1.5 rounded-2xl border border-white/15 bg-zinc-900 px-3 text-xs font-semibold text-white transition-transform active:scale-95"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>Передать монету</span>
+            </button>
+            <span className="truncate rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 font-mono-num text-xs font-semibold text-zinc-200">
+              {formatTon(user.balance_tons, 2)} TON
+            </span>
+          </div>
         </div>
 
         {/* Coin Header & Overflow-safe 2x2 Stats */}
@@ -656,6 +727,108 @@ export function ExchangeView({
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   <span>{tradeBusy ? 'Исполняем...' : 'Подтвердить'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Transfer Memecoin Modal */}
+        {transferOpen && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center sm:p-4">
+            <div className="w-full max-w-md rounded-t-3xl border border-white/15 bg-zinc-900 p-5 sm:rounded-3xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Send className="h-4 w-4 text-white" />
+                  <h3 className="text-base font-bold text-white">Передать монету ${c.ticker}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTransferOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-3.5 py-2.5 text-xs">
+                  <span className="text-zinc-400">Доступно у вас</span>
+                  <span className="font-mono-num font-bold text-white">
+                    {formatCompactNum(c.my_balance, 2)} ${c.ticker}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-400">
+                    Получатель (@username или Telegram ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={transferRecipient}
+                    onChange={(e) => setTransferRecipient(e.target.value)}
+                    placeholder="@username или 123456789"
+                    className="h-12 w-full rounded-2xl border border-white/10 bg-black px-3.5 text-sm text-white outline-none focus:border-white/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-400">
+                    Количество токенов (${c.ticker})
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    placeholder={`Кол-во $${c.ticker}`}
+                    className="h-12 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm font-semibold text-white outline-none focus:border-white/40"
+                  />
+                  {c.my_balance > 0 && (
+                    <div className="mt-2 grid grid-cols-4 gap-2">
+                      {[0.25, 0.5, 0.75, 1].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() =>
+                            setTransferAmount(String(Number((c.my_balance * pct).toFixed(2))))
+                          }
+                          className="min-h-[34px] rounded-xl border border-white/10 bg-zinc-950 font-mono-num text-xs font-semibold text-zinc-300 active:scale-95"
+                        >
+                          {pct * 100}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {errorMsg && (
+                <p className="mt-3 text-center text-xs text-rose-400">{errorMsg}</p>
+              )}
+
+              <div className="mt-5 grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  disabled={transferBusy}
+                  onClick={() => setTransferOpen(false)}
+                  className="h-12 rounded-2xl border border-white/15 bg-zinc-950 text-xs font-bold text-zinc-300"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    transferBusy ||
+                    !transferRecipient.trim() ||
+                    Number(transferAmount || 0) <= 0 ||
+                    Number(transferAmount || 0) > c.my_balance + 1e-6
+                  }
+                  onClick={handleTransferCoin}
+                  className="flex h-12 items-center justify-center gap-1.5 rounded-2xl bg-white text-xs font-bold text-black active:scale-[0.98] disabled:opacity-40"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  <span>{transferBusy ? 'Переводим...' : 'Перевести'}</span>
                 </button>
               </div>
             </div>

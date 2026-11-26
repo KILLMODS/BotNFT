@@ -56,6 +56,9 @@ export default function App() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const fallbackTimerRef = useRef<number | null>(null);
+  const tabRef = useRef<AppTab>(tab);
+  tabRef.current = tab;
+  const lastBgTickRef = useRef<number>(0);
 
   const loadInitialData = useCallback(async () => {
     try {
@@ -154,8 +157,27 @@ export default function App() {
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(ev.data);
-            if (msg.type === 'rocket_state' || msg.type === 'rocket_tick') {
-              setRocket(msg.data as RocketState);
+            if (msg.type === 'rocket_state') {
+              const incoming = msg.data as RocketState;
+              if (tabRef.current === 'games' || incoming.phase !== 'betting') {
+                setRocket(incoming);
+              } else {
+                const now = Date.now();
+                if (now - lastBgTickRef.current >= 900) {
+                  lastBgTickRef.current = now;
+                  setRocket(incoming);
+                }
+              }
+            } else if (msg.type === 'rocket_tick') {
+              if (tabRef.current === 'games') {
+                setRocket(msg.data as RocketState);
+              } else if (tabRef.current === 'home') {
+                const now = Date.now();
+                if (now - lastBgTickRef.current >= 800) {
+                  lastBgTickRef.current = now;
+                  setRocket(msg.data as RocketState);
+                }
+              }
             } else if (msg.type === 'coin_update') {
               const updated = msg.data as MemecoinSummary;
               setCoins((prev) =>

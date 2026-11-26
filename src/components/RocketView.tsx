@@ -27,20 +27,64 @@ const FALLBACK_BASE_GIFTS = [
   { key: 'pepe_heart', name: 'Plush Pepe (Пепе с сердцем)', stars: 480000, image_url: '/api/assets/gift/pepe_heart' },
 ];
 
-function resolvePreviewNftReward(
-  catalog: CatalogData,
-  targetValue: number,
-  sourceStars: number,
-  sourceIsUpgraded: boolean,
-  seed: number
-) {
-  const basePool = (catalog.base_gifts && catalog.base_gifts.length > 0
+interface PrecomputedCandidate {
+  natStars: number;
+  title: string;
+  backdropName: string;
+  imageUrl: string;
+  centerHex: string;
+  edgeHex: string;
+}
+
+function buildSortedBasePool(catalog: CatalogData) {
+  return (catalog.base_gifts && catalog.base_gifts.length > 0
     ? catalog.base_gifts
     : FALLBACK_BASE_GIFTS
   )
     .filter((g) => g.stars < 400000)
     .sort((a, b) => a.stars - b.stars);
+}
 
+function buildUpgradedCandidates(catalog: CatalogData, seed: number): PrecomputedCandidate[] {
+  const list: PrecomputedCandidate[] = [];
+  for (const g of catalog.upgradable_gifts) {
+    const models = catalog.models_by_gift[g.key] || [];
+    if (models.length === 0) continue;
+    const mdef = models[Math.abs(seed) % models.length];
+    const base = g.key === 'pepe_heart' ? g.base_stars : g.base_stars + g.upgrade_cost;
+    for (const bdef of catalog.backdrops) {
+      const monoMult =
+        mdef.color_family &&
+        bdef.color_family &&
+        bdef.key !== 'rainbow' &&
+        mdef.color_family === bdef.color_family
+          ? catalog.mono_price_mult || 6
+          : 1;
+      const raw = base * bdef.price_mult * mdef.price_mult * monoMult * 1.5;
+      let natStars = Math.max(150000, Math.round(raw / 5000) * 5000);
+      if (g.key === 'pepe_heart') natStars = Math.max(750000, Math.round(raw / 10000) * 10000);
+      else if (g.key === 'trophy_cup') natStars = Math.max(375000, Math.round(raw / 5000) * 5000);
+      else if (g.key === 'heart_lock_key' || g.key === 'bonded_ring') natStars = Math.max(225000, Math.round(raw / 5000) * 5000);
+      list.push({
+        natStars,
+        title: mdef.name,
+        backdropName: `${g.title} · ${bdef.name}`,
+        imageUrl: mdef.image_url,
+        centerHex: bdef.center_hex,
+        edgeHex: bdef.edge_hex,
+      });
+    }
+  }
+  return list.sort((a, b) => a.natStars - b.natStars);
+}
+
+function lookupNftRewardFast(
+  basePool: ReturnType<typeof buildSortedBasePool>,
+  upgradedCandidates: PrecomputedCandidate[],
+  targetValue: number,
+  sourceStars: number,
+  sourceIsUpgraded: boolean
+) {
   if (!sourceIsUpgraded && targetValue < 400000) {
     let bestBase = null as (typeof basePool)[number] | null;
     for (const g of basePool) {
@@ -73,37 +117,9 @@ function resolvePreviewNftReward(
     }
   }
 
-  const candidates: Array<{
-    natStars: number;
-    title: string;
-    backdropName: string;
-    imageUrl: string;
-    centerHex: string;
-    edgeHex: string;
-  }> = [];
-
-  for (const g of catalog.upgradable_gifts) {
-    const models = catalog.models_by_gift[g.key] || [];
-    if (models.length === 0) continue;
-    const mdef = models[Math.abs(seed) % models.length];
-    const base = g.key === 'pepe_heart' ? g.base_stars : g.base_stars + g.upgrade_cost;
-    for (const bdef of catalog.backdrops) {
-      const raw = base * bdef.price_mult * mdef.price_mult * 1.5;
-      const natStars = Math.max(150000, Math.round(raw / 5000) * 5000);
-      candidates.push({
-        natStars,
-        title: `${mdef.name}`,
-        backdropName: `${g.title} · ${bdef.name}`,
-        imageUrl: mdef.image_url,
-        centerHex: bdef.center_hex,
-        edgeHex: bdef.edge_hex,
-      });
-    }
-  }
-
   const minFloor = !sourceIsUpgraded ? 400000 : Math.max(150000, sourceStars);
   const rewardStars = Math.max(minFloor, Math.round(targetValue / 5000) * 5000);
-  if (candidates.length === 0) {
+  if (upgradedCandidates.length === 0) {
     return {
       isUpgraded: true,
       title: 'Улучшенный NFT',
@@ -114,9 +130,15 @@ function resolvePreviewNftReward(
       edgeHex: '#0E0F0F',
     };
   }
-  const chosen = candidates.reduce((best, cur) =>
-    Math.abs(cur.natStars - rewardStars) < Math.abs(best.natStars - rewardStars) ? cur : best
-  );
+  let chosen = upgradedCandidates[0];
+  let bestDiff = Math.abs(chosen.natStars - rewardStars);
+  for (let i = 1; i < upgradedCandidates.length; i++) {
+    const d = Math.abs(upgradedCandidates[i].natStars - rewardStars);
+    if (d < bestDiff) {
+      bestDiff = d;
+      chosen = upgradedCandidates[i];
+    }
+  }
   return {
     isUpgraded: true,
     title: chosen.title,
@@ -144,6 +166,7 @@ export function RocketView({
 
   const [stakeType, setStakeType] = useState<'stars' | 'nft'>('stars');
   const [stakeStars, setStakeStars] = useState<string>('1000');
+  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState<boolean>(false);
   const [autoCashout, setAutoCashout] = useState<string>('2.0');
   const [selectedNftId, setSelectedNftId] = useState<number>(() => availableNfts[0]?.id || 0);
   const [busy, setBusy] = useState(false);
@@ -154,28 +177,35 @@ export function RocketView({
   const selectedNft =
     availableNfts.find((n) => n.id === selectedNftId) || availableNfts[0] || null;
 
+  const sortedBasePool = useMemo(() => buildSortedBasePool(catalog), [catalog]);
+  const previewSeed = myBet?.stake_type === 'nft' ? myBet.user_id : selectedNft?.id || 0;
+  const upgradedCandidates = useMemo(
+    () => buildUpgradedCandidates(catalog, previewSeed),
+    [catalog, previewSeed]
+  );
+
   const activeNftForPreview = useMemo(() => {
     if (myBet && myBet.stake_type === 'nft' && myBet.status === 'active') {
       const liveMult = rocket.phase === 'flying' ? Math.max(1.25, rocket.multiplier) : 1.5;
-      return resolvePreviewNftReward(
-        catalog,
+      return lookupNftRewardFast(
+        sortedBasePool,
+        upgradedCandidates,
         Math.round(myBet.stake_stars * liveMult),
         myBet.stake_stars,
-        Boolean(myBet.source_is_upgraded),
-        myBet.user_id
+        Boolean(myBet.source_is_upgraded)
       );
     }
     if (stakeType === 'nft' && selectedNft) {
-      return resolvePreviewNftReward(
-        catalog,
+      return lookupNftRewardFast(
+        sortedBasePool,
+        upgradedCandidates,
         Math.round(selectedNft.display_stars * 1.5),
         selectedNft.display_stars,
-        selectedNft.is_upgraded,
-        selectedNft.id
+        selectedNft.is_upgraded
       );
     }
     return null;
-  }, [myBet, stakeType, selectedNft, rocket.phase, rocket.multiplier, catalog]);
+  }, [myBet, stakeType, selectedNft, rocket.phase, rocket.multiplier, sortedBasePool, upgradedCandidates]);
 
   const curveProgress = Math.min(1, Math.log(Math.max(1, rocket.multiplier)) / Math.log(8));
   const curveEndX = 40 + curveProgress * 260;
@@ -187,16 +217,24 @@ export function RocketView({
     setNoticeMsg(null);
     setBusy(true);
     try {
+      const minAuto = stakeType === 'nft' ? 1.25 : 1.1;
+      const parsedAuto = Number(autoCashout || 0);
+      const validAutoCashout =
+        autoCashoutEnabled && Number.isFinite(parsedAuto) && parsedAuto >= minAuto
+          ? Number(parsedAuto.toFixed(2))
+          : null;
+
       const payload =
         stakeType === 'stars'
           ? {
               stake_type: 'stars',
               stake_stars: Number(stakeStars || 0),
-              auto_cashout: Number(autoCashout || 0) >= 1.1 ? Number(autoCashout) : null,
+              auto_cashout: validAutoCashout,
             }
           : {
               stake_type: 'nft',
               collection_item_id: selectedNft?.id || 0,
+              auto_cashout: validAutoCashout,
             };
 
       const res = await apiRequest<{
@@ -440,44 +478,28 @@ export function RocketView({
             </div>
 
             {stakeType === 'stars' ? (
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-zinc-400">
-                    Ставка (Stars ⭐)
-                  </label>
-                  <input
-                    type="number"
-                    min={50}
-                    value={stakeStars}
-                    onChange={(e) => setStakeStars(e.target.value)}
-                    className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm text-white outline-none focus:border-white/40"
-                  />
-                  <div className="mt-1.5 flex gap-1.5">
-                    {[500, 2500, 10000, 50000].map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setStakeStars(String(v))}
-                        className="min-h-[32px] flex-1 rounded-xl border border-white/10 bg-zinc-900 font-mono-num text-[11px] font-semibold text-zinc-300"
-                      >
-                        {formatStars(v)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-zinc-400">
-                    Авто-вывод (x)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min={1.1}
-                    value={autoCashout}
-                    onChange={(e) => setAutoCashout(e.target.value)}
-                    className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm text-white outline-none focus:border-white/40"
-                  />
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-zinc-400">
+                  Ставка (Stars ⭐)
+                </label>
+                <input
+                  type="number"
+                  min={50}
+                  value={stakeStars}
+                  onChange={(e) => setStakeStars(e.target.value)}
+                  className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm text-white outline-none focus:border-white/40"
+                />
+                <div className="mt-1.5 flex gap-1.5">
+                  {[500, 2500, 10000, 50000].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setStakeStars(String(v))}
+                      className="min-h-[32px] flex-1 rounded-xl border border-white/10 bg-zinc-900 font-mono-num text-[11px] font-semibold text-zinc-300"
+                    >
+                      {formatStars(v)}
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : (
@@ -539,6 +561,40 @@ export function RocketView({
                 )}
               </div>
             )}
+
+            {/* Shared Auto-Cashout Toggle (Stars & NFT, off by default) */}
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black px-3.5 py-2.5">
+              <label className="flex cursor-pointer items-center gap-2.5 select-none">
+                <input
+                  type="checkbox"
+                  checked={autoCashoutEnabled}
+                  onChange={(e) => setAutoCashoutEnabled(e.target.checked)}
+                  className="h-4 w-4 accent-white rounded"
+                />
+                <div>
+                  <p className="text-xs font-semibold text-white">Автовывод</p>
+                  <p className="text-[10px] text-zinc-500">
+                    {autoCashoutEnabled
+                      ? `Сработает от x${stakeType === 'nft' ? '1.25' : '1.10'}`
+                      : 'Выкл — забираете вручную'}
+                  </p>
+                </div>
+              </label>
+
+              {autoCashoutEnabled && (
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono-num text-xs text-zinc-400">x</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min={stakeType === 'nft' ? 1.25 : 1.1}
+                    value={autoCashout}
+                    onChange={(e) => setAutoCashout(e.target.value)}
+                    className="h-9 w-20 rounded-xl border border-white/15 bg-zinc-900 px-2.5 text-right font-mono-num text-xs font-bold text-white outline-none focus:border-white/40"
+                  />
+                </div>
+              )}
+            </div>
 
             <button
               type="button"
