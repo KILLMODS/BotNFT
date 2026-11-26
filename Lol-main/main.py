@@ -375,6 +375,7 @@ class FirebaseCloudManager:
         self._dirty: bool = False
         self._startup_download_error: bool = False
         self._cloud_doc_missing: bool = False
+        self._auth_revoked: bool = False
 
     @staticmethod
     def format_error(e: Exception) -> str:
@@ -387,6 +388,8 @@ class FirebaseCloudManager:
         return f"Ошибка: {safe_msg[:200]}"
 
     def get_access_token(self) -> Optional[str]:
+        if self._auth_revoked:
+            return None
         now = time.time()
         if self.cached_token and self.token_expiry > now + 120:
             return self.cached_token
@@ -404,9 +407,14 @@ class FirebaseCloudManager:
             self.cached_token = creds.token
             self.token_expiry = now + 3500
             return self.cached_token
-        except Exception:
-            pass
+        except Exception as auth_ex:
+            if "Invalid JWT Signature" in str(auth_ex) or "invalid_grant" in str(auth_ex):
+                self._auth_revoked = True
+                self.last_sync_status = self.format_error(auth_ex)
+                return None
 
+        kf_path = None
+        df_path = None
         try:
             header = {"alg": "RS256", "typ": "JWT"}
             iat = int(now)
@@ -424,11 +432,13 @@ class FirebaseCloudManager:
             ep = b64url(json.dumps(payload).encode("utf-8"))
             si = f"{eh}.{ep}".encode("utf-8")
             with tempfile.NamedTemporaryFile("w", delete=False) as kf, tempfile.NamedTemporaryFile("wb", delete=False) as df:
+                kf_path = kf.name
+                df_path = df.name
                 kf.write(key_dict["private_key"])
                 kf.flush()
                 df.write(si)
                 df.flush()
-                sig = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", kf.name, df.name])
+            sig = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", kf_path, df_path])
             assertion = f"{eh}.{ep}.{b64url(sig)}"
             data = urllib.parse.urlencode({
                 "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
@@ -441,12 +451,34 @@ class FirebaseCloudManager:
                 self.token_expiry = now + int(res.get("expires_in", 3600)) - 60
                 return self.cached_token
         except Exception as ex:
-            log.warning(f"[Firebase Cloud] Не удалось получить OAuth2 токен через OpenSSL: {ex}")
+            err_body = ""
+            if hasattr(ex, "read"):
+                try:
+                    err_body = ex.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+            if "invalid_grant" in str(ex) or "invalid_grant" in err_body or "Invalid JWT Signature" in err_body:
+                self._auth_revoked = True
+                self.last_sync_status = "⚠️ Ошибка: Ключ сервисного аккаунта отозван в консоли Firebase (Invalid JWT Signature)."
+            else:
+                log.warning(f"[Firebase Cloud] Не удалось получить OAuth2 токен через OpenSSL: {ex}")
             return None
+        finally:
+            for p in (kf_path, df_path):
+                if p:
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
     def init_app(self, force_reload: bool = False) -> bool:
-        if self.initialized and not force_reload:
-            return True
+        if force_reload:
+            self._auth_revoked = False
+            self.cached_token = None
+            self.token_expiry = 0.0
+            self._startup_download_error = False
+        elif self.initialized:
+            return not self._auth_revoked
 
         candidate_files = [
             BASE_DIR / "firebase-service-account.json",
@@ -482,6 +514,22 @@ class FirebaseCloudManager:
 
         self.loaded_cred_dict = cred_dict
         self.project_id = cred_dict.get("project_id", "proar-5a642")
+
+        # Предварительная проверка токена перед запуском gRPC-клиента Firestore,
+        # чтобы отозванный ключ не вызывал спам grpc._plugin_wrapping (Invalid JWT Signature).
+        tok = self.get_access_token()
+        if self._auth_revoked or not tok:
+            self.firestore_client = None
+            self.initialized = True
+            if self._auth_revoked:
+                log.warning(
+                    "[Firebase] ⚠️ Ключ сервисного аккаунта (%s) отозван (Invalid JWT Signature). "
+                    "Облачная синхронизация отключена, бот работает с локальной base.db. "
+                    "Загрузите новый ключ в Админ-панели или через firebase-service-account.json.",
+                    loaded_source,
+                )
+                self._startup_download_error = True
+            return False
 
         if FIREBASE_ADMIN_AVAILABLE and fb_firestore and fb_credentials:
             try:
@@ -617,13 +665,14 @@ class FirebaseCloudManager:
             return False
 
     def upload_db_to_cloud(self, force: bool = False) -> bool:
-        if not self.init_app():
+        if self._auth_revoked or not self.init_app():
             return False
 
         with self._lock:
             try:
                 if self._startup_download_error:
-                    log.warning("[Firebase] 🛑 Anti-Wipe: при старте была ошибка чтения Firestore, автовыгрузка заблокирована.")
+                    if force:
+                        log.warning("[Firebase] 🛑 Anti-Wipe: при старте была ошибка чтения Firestore, автовыгрузка заблокирована.")
                     return False
 
                 if not DB_PATH.exists() or DB_PATH.stat().st_size < 100:
