@@ -178,7 +178,7 @@ SCARED_CAT_PROMO_INTERVAL_SEC = 3 * 3600
 
 # Mini App & Crypto Exchange / Rocket / Upgrader (порт 3000)
 MINI_APP_HOST = os.environ.get("MINI_APP_HOST", "0.0.0.0")
-MINI_APP_PORT = int(os.environ.get("MINI_APP_PORT", "3000"))
+MINI_APP_PORT = int(os.environ.get("MINI_APP_PORT") or "3000")
 MINI_APP_URL = os.environ.get("MINI_APP_URL", "").strip()
 TON_STAR_RATE = 1_000.0
 MEMECOIN_MIN_LEVEL = 30
@@ -19879,6 +19879,14 @@ def _json_response(request, data: dict, status: int = 200):
     return aiohttp_web.json_response(data, status=status, headers=_cors_headers(request))
 
 
+async def _read_json_body(request) -> dict:
+    try:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 async def _handle_options(request):
     return aiohttp_web.Response(status=204, headers=_cors_headers(request))
 
@@ -19904,10 +19912,14 @@ async def _api_upgrade(request):
     u = await _auth_user_from_request(request)
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
-    body = await request.json()
+    body = await _read_json_body(request)
+    try:
+        source_item_id = int(body.get("source_item_id") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректный ID предмета."}, status=400)
     ok, msg, res = miniapp_upgrade_item_db(
         int(u["user_id"]),
-        int(body.get("source_item_id") or 0),
+        source_item_id,
         str(body.get("target_gift_key") or "pepe_heart"),
         body.get("target_model_name"),
         body.get("target_backdrop_key"),
@@ -19923,11 +19935,15 @@ async def _api_exchange_swap(request):
     u = await _auth_user_from_request(request)
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
-    body = await request.json()
+    body = await _read_json_body(request)
+    try:
+        amount = float(body.get("amount") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректная сумма."}, status=400)
     ok, msg, res = swap_stars_ton_db(
         int(u["user_id"]),
         str(body.get("direction") or "stars_to_ton"),
-        float(body.get("amount") or 0),
+        amount,
     )
     if not ok:
         return _json_response(request, {"ok": False, "error": msg}, status=400)
@@ -19954,7 +19970,7 @@ async def _api_coins_create(request):
     u = await _auth_user_from_request(request)
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
-    body = await request.json()
+    body = await _read_json_body(request)
     ok, msg, res = create_memecoin_db(
         int(u["user_id"]),
         str(body.get("name") or ""),
@@ -19971,12 +19987,16 @@ async def _api_coin_trade(request):
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
     coin_id = int(request.match_info["id"])
-    body = await request.json()
+    body = await _read_json_body(request)
+    try:
+        amount = float(body.get("amount") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректная сумма сделки."}, status=400)
     ok, msg, res = trade_memecoin_db(
         int(u["user_id"]),
         coin_id,
         str(body.get("side") or ""),
-        float(body.get("amount") or 0),
+        amount,
     )
     if not ok:
         return _json_response(request, {"ok": False, "error": msg}, status=400)
@@ -19998,12 +20018,17 @@ async def _api_rocket_bet(request):
     u = await _auth_user_from_request(request)
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
-    body = await request.json()
+    body = await _read_json_body(request)
+    try:
+        stake_stars = int(body.get("stake_stars") or 0)
+        collection_item_id = int(body.get("collection_item_id") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректные параметры ставки."}, status=400)
     ok, msg, st = await _ROCKET.place_bet(
         int(u["user_id"]),
         stake_type=str(body.get("stake_type") or "stars"),
-        stake_stars=int(body.get("stake_stars") or 0),
-        collection_item_id=int(body.get("collection_item_id") or 0),
+        stake_stars=stake_stars,
+        collection_item_id=collection_item_id,
         target_gift_key=str(body.get("target_gift_key") or "pepe_heart"),
         target_model_name=body.get("target_model_name"),
         target_backdrop_key=body.get("target_backdrop_key"),
@@ -20117,13 +20142,16 @@ async def start_miniapp_server(app: Optional[Application] = None) -> None:
     if not AIOHTTP_AVAILABLE:
         log.warning("aiohttp не установлен — Mini App сервер на порту %s не запущен.", MINI_APP_PORT)
         return
-    web_app = build_miniapp_web_app()
-    _MINIAPP_RUNNER = aiohttp_web.AppRunner(web_app)
-    await _MINIAPP_RUNNER.setup()
-    _MINIAPP_SITE = aiohttp_web.TCPSite(_MINIAPP_RUNNER, MINI_APP_HOST, MINI_APP_PORT)
-    await _MINIAPP_SITE.start()
-    _ROCKET_TASK = asyncio.create_task(_rocket_engine_loop())
-    log.info("Mini App HTTP + WebSocket сервер запущен на http://%s:%s", MINI_APP_HOST, MINI_APP_PORT)
+    try:
+        web_app = build_miniapp_web_app()
+        _MINIAPP_RUNNER = aiohttp_web.AppRunner(web_app)
+        await _MINIAPP_RUNNER.setup()
+        _MINIAPP_SITE = aiohttp_web.TCPSite(_MINIAPP_RUNNER, MINI_APP_HOST, MINI_APP_PORT)
+        await _MINIAPP_SITE.start()
+        _ROCKET_TASK = asyncio.create_task(_rocket_engine_loop())
+        log.info("Mini App HTTP + WebSocket сервер запущен на http://%s:%s", MINI_APP_HOST, MINI_APP_PORT)
+    except Exception as e:
+        log.error("Не удалось запустить Mini App сервер на %s:%s: %s", MINI_APP_HOST, MINI_APP_PORT, e)
 
 
 async def stop_miniapp_server() -> None:

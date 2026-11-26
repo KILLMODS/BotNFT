@@ -108,15 +108,26 @@ export default function App() {
   useEffect(() => {
     let closedByEffect = false;
     let reconnectTimer: number | null = null;
+    let fallbackTick = 0;
+    let wsFailCount = 0;
 
     const startFallbackSync = () => {
       if (fallbackTimerRef.current !== null) return;
       fallbackTimerRef.current = window.setInterval(async () => {
+        fallbackTick += 1;
         try {
           const r = await apiRequest<{ rocket: RocketState }>('/api/rocket/state');
           setRocket(r.rocket);
         } catch {
-          // Ignore
+          // Ignore transient rocket poll errors
+        }
+        if (fallbackTick % 5 === 0) {
+          try {
+            const c = await apiRequest<{ coins: MemecoinSummary[] }>('/api/coins');
+            setCoins(c.coins);
+          } catch {
+            // Ignore transient coins poll errors
+          }
         }
       }, 650);
     };
@@ -135,6 +146,7 @@ export default function App() {
         wsRef.current = ws;
 
         ws.onopen = () => {
+          wsFailCount = 0;
           setWsConnected(true);
           stopFallbackSync();
         };
@@ -164,7 +176,9 @@ export default function App() {
           setWsConnected(false);
           startFallbackSync();
           if (!closedByEffect) {
-            reconnectTimer = window.setTimeout(connect, 3000);
+            wsFailCount += 1;
+            const delay = wsFailCount <= 2 ? 3000 : 15000;
+            reconnectTimer = window.setTimeout(connect, delay);
           }
         };
       } catch {
