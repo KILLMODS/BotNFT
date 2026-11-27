@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Check, Rocket, Sparkles, Star, Users } from 'lucide-react';
-import { apiRequest, formatStars, getTelegramWebApp, resolveAssetUrl } from '../api';
+import {
+  apiRequest,
+  formatStars,
+  getTelegramWebApp,
+  parseDecimal,
+  resolveAssetUrl,
+  sanitizeDecimalInput,
+} from '../api';
 import type { CatalogData, CollectionItem, RocketState, UserProfile } from '../types';
 
 interface RocketViewProps {
@@ -27,7 +34,7 @@ const FALLBACK_BASE_GIFTS = [
   { key: 'pepe_heart', name: 'Plush Pepe (Пепе с сердцем)', stars: 480000, image_url: '/api/assets/gift/pepe_heart' },
 ];
 
-interface PrecomputedCandidate {
+export interface PrecomputedCandidate {
   natStars: number;
   title: string;
   backdropName: string;
@@ -36,7 +43,7 @@ interface PrecomputedCandidate {
   edgeHex: string;
 }
 
-function buildSortedBasePool(catalog: CatalogData) {
+export function buildSortedBasePool(catalog: CatalogData) {
   return (catalog.base_gifts && catalog.base_gifts.length > 0
     ? catalog.base_gifts
     : FALLBACK_BASE_GIFTS
@@ -45,7 +52,7 @@ function buildSortedBasePool(catalog: CatalogData) {
     .sort((a, b) => a.stars - b.stars);
 }
 
-function buildUpgradedCandidates(catalog: CatalogData, seed: number): PrecomputedCandidate[] {
+export function buildUpgradedCandidates(catalog: CatalogData, seed: number): PrecomputedCandidate[] {
   const list: PrecomputedCandidate[] = [];
   for (const g of catalog.upgradable_gifts) {
     const models = catalog.models_by_gift[g.key] || [];
@@ -64,7 +71,8 @@ function buildUpgradedCandidates(catalog: CatalogData, seed: number): Precompute
       let natStars = Math.max(150000, Math.round(raw / 5000) * 5000);
       if (g.key === 'pepe_heart') natStars = Math.max(750000, Math.round(raw / 10000) * 10000);
       else if (g.key === 'trophy_cup') natStars = Math.max(375000, Math.round(raw / 5000) * 5000);
-      else if (g.key === 'heart_lock_key' || g.key === 'bonded_ring') natStars = Math.max(225000, Math.round(raw / 5000) * 5000);
+      else if (g.key === 'heart_lock_key' || g.key === 'bonded_ring')
+        natStars = Math.max(225000, Math.round(raw / 5000) * 5000);
       list.push({
         natStars,
         title: mdef.name,
@@ -78,7 +86,7 @@ function buildUpgradedCandidates(catalog: CatalogData, seed: number): Precompute
   return list.sort((a, b) => a.natStars - b.natStars);
 }
 
-function lookupNftRewardFast(
+export function lookupNftRewardFast(
   basePool: ReturnType<typeof buildSortedBasePool>,
   upgradedCandidates: PrecomputedCandidate[],
   targetValue: number,
@@ -208,8 +216,19 @@ export function RocketView({
   }, [myBet, stakeType, selectedNft, rocket.phase, rocket.multiplier, sortedBasePool, upgradedCandidates]);
 
   const curveProgress = Math.min(1, Math.log(Math.max(1, rocket.multiplier)) / Math.log(8));
-  const curveEndX = 40 + curveProgress * 260;
-  const curveEndY = 128 - Math.pow(curveProgress, 1.35) * 98;
+  const curveStartX = 24;
+  const curveStartY = 128;
+  const curveEndX = 42 + curveProgress * 262;
+  const curveEndY = 128 - Math.pow(curveProgress, 1.28) * 100;
+  const ctrlX = curveStartX + (curveEndX - curveStartX) * 0.56;
+  const ctrlY = curveStartY;
+
+  const tangentDx = curveEndX - ctrlX;
+  const tangentDy = curveEndY - ctrlY;
+  const rocketAngleDeg =
+    rocket.phase === 'betting'
+      ? -38
+      : (Math.atan2(tangentDy, tangentDx) * 180) / Math.PI;
 
   const handlePlaceBet = async () => {
     if (busy) return;
@@ -218,7 +237,7 @@ export function RocketView({
     setBusy(true);
     try {
       const minAuto = stakeType === 'nft' ? 1.25 : 1.1;
-      const parsedAuto = Number(autoCashout || 0);
+      const parsedAuto = parseDecimal(autoCashout);
       const validAutoCashout =
         autoCashoutEnabled && Number.isFinite(parsedAuto) && parsedAuto >= minAuto
           ? Number(parsedAuto.toFixed(2))
@@ -228,7 +247,7 @@ export function RocketView({
         stakeType === 'stars'
           ? {
               stake_type: 'stars',
-              stake_stars: Number(stakeStars || 0),
+              stake_stars: Math.round(parseDecimal(stakeStars)),
               auto_cashout: validAutoCashout,
             }
           : {
@@ -288,10 +307,13 @@ export function RocketView({
     }
   };
 
+  const flightPath = `M ${curveStartX} ${curveStartY} Q ${ctrlX} ${ctrlY} ${curveEndX} ${curveEndY}`;
+  const areaPath = `${flightPath} L ${curveEndX} ${curveStartY} Z`;
+
   return (
     <div className="space-y-3">
-      {/* Compact Flight Stage + Immediate Action Controls */}
-      <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-4">
+      {/* Compact Liquid Glass Flight Stage */}
+      <section className="glass-surface rounded-[28px] p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-base font-bold tracking-tight text-white">Онлайн Ракетка</h2>
@@ -299,20 +321,20 @@ export function RocketView({
               Раунд #{rocket.round_id} · {wsConnected ? 'Live поток' : 'Синхронизация'}
             </p>
           </div>
-          <div className="shrink-0 rounded-2xl border border-white/10 bg-black/60 px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
+          <div className="glass-chip shrink-0 rounded-2xl px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
             {formatStars(user.balance_stars)} ⭐
           </div>
         </div>
 
         {/* History Strip */}
-        <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-1">
           {rocket.history.slice(0, 12).map((h) => (
             <span
               key={`${h.round_id}-${h.crash_point}`}
-              className={`shrink-0 rounded-xl border px-2 py-0.5 font-mono-num text-[11px] font-semibold ${
+              className={`shrink-0 rounded-xl border px-2.5 py-0.5 font-mono-num text-[11px] font-semibold ${
                 h.crash_point >= 2
                   ? 'border-white/25 bg-white text-black'
-                  : 'border-white/10 bg-zinc-950 text-zinc-400'
+                  : 'glass-inset text-zinc-400'
               }`}
             >
               {h.crash_point.toFixed(2)}x
@@ -320,26 +342,68 @@ export function RocketView({
           ))}
         </div>
 
-        {/* Compact Trajectory Graph */}
-        <div className="relative mt-2.5 overflow-hidden rounded-3xl border border-white/10 bg-black p-3">
-          <svg viewBox="0 0 340 142" className="h-36 w-full sm:h-40">
+        {/* Polished Liquid Glass Trajectory Graph */}
+        <div className="glass-inset relative mt-2.5 overflow-hidden rounded-3xl p-3">
+          <svg viewBox="0 0 340 144" className="h-40 w-full sm:h-44">
+            <defs>
+              <linearGradient id="rocket-area-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0%"
+                  stopColor={rocket.phase === 'crashed' ? '#71717a' : '#ffffff'}
+                  stopOpacity={rocket.phase === 'crashed' ? 0.14 : 0.24}
+                />
+                <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="rocket-line-grad" x1="0" y1="0" x2="1" y2="0">
+                <stop
+                  offset="0%"
+                  stopColor={rocket.phase === 'crashed' ? '#52525b' : 'rgba(255,255,255,0.4)'}
+                />
+                <stop
+                  offset="100%"
+                  stopColor={rocket.phase === 'crashed' ? '#71717a' : '#ffffff'}
+                />
+              </linearGradient>
+            </defs>
+
+            {/* Subtle horizontal reference grid */}
+            {[40, 70, 100].map((y) => (
+              <line
+                key={y}
+                x1="24"
+                y1={y}
+                x2="320"
+                y2={y}
+                stroke="rgba(255,255,255,0.045)"
+                strokeDasharray="3 5"
+              />
+            ))}
             <line x1="24" y1="128" x2="320" y2="128" stroke="rgba(255,255,255,0.1)" />
             <line x1="24" y1="16" x2="24" y2="128" stroke="rgba(255,255,255,0.1)" />
+
             {rocket.phase !== 'betting' && (
               <>
+                <path d={areaPath} fill="url(#rocket-area-grad)" />
                 <path
-                  d={`M 24 128 Q ${(24 + curveEndX) * 0.55} 128 ${curveEndX} ${curveEndY}`}
+                  d={flightPath}
                   fill="none"
-                  stroke={rocket.phase === 'crashed' ? '#71717a' : '#ffffff'}
-                  strokeWidth="3.2"
+                  stroke="url(#rocket-line-grad)"
+                  strokeWidth="3"
                   strokeLinecap="round"
                 />
-                <circle
-                  cx={curveEndX}
-                  cy={curveEndY}
-                  r="5"
-                  fill={rocket.phase === 'crashed' ? '#71717a' : '#ffffff'}
-                />
+                <g transform={`translate(${curveEndX}, ${curveEndY}) rotate(${rocketAngleDeg + 45})`}>
+                  {rocket.phase === 'flying' && (
+                    <circle cx="0" cy="0" r="11" fill="rgba(255,255,255,0.16)" />
+                  )}
+                  <path
+                    d="M0 -8 C3 -3 3 3 0 6 C-3 3 -3 -3 0 -8 Z"
+                    fill={rocket.phase === 'crashed' ? '#71717a' : '#ffffff'}
+                  />
+                  <path
+                    d="M-3 2 L-6 6 L-1 5 Z M3 2 L6 6 L1 5 Z"
+                    fill={rocket.phase === 'crashed' ? '#52525b' : '#d4d4d8'}
+                  />
+                </g>
               </>
             )}
           </svg>
@@ -359,7 +423,7 @@ export function RocketView({
                 <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">
                   В полёте
                 </span>
-                <span className="mt-0.5 font-mono-num text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+                <span className="mt-0.5 font-mono-num text-4xl font-extrabold tracking-tight text-white drop-shadow sm:text-5xl">
                   {rocket.multiplier.toFixed(2)}x
                 </span>
               </>
@@ -376,12 +440,12 @@ export function RocketView({
           </div>
         </div>
 
-        {/* Live Evolving NFT Target Card (shown during NFT bet or NFT mode) */}
+        {/* Live Evolving NFT Target Card */}
         {activeNftForPreview && (
-          <div className="mt-2.5 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-zinc-950 p-3">
+          <div className="glass-inset mt-2.5 flex items-center justify-between gap-3 rounded-2xl p-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-zinc-900 p-1"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 p-1"
                 style={
                   activeNftForPreview.centerHex && activeNftForPreview.edgeHex
                     ? {
@@ -424,12 +488,12 @@ export function RocketView({
         )}
 
         {noticeMsg && (
-          <div className="mt-2.5 rounded-2xl border border-white/20 bg-zinc-950 p-2.5 text-center text-xs font-medium text-white">
+          <div className="glass-card mt-2.5 rounded-2xl p-2.5 text-center text-xs font-medium text-white">
             {noticeMsg}
           </div>
         )}
         {errorMsg && (
-          <div className="mt-2.5 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-2.5 text-center text-xs text-rose-300">
+          <div className="mt-2.5 rounded-2xl border border-rose-500/30 bg-rose-950/35 p-2.5 text-center text-xs text-rose-300">
             {errorMsg}
           </div>
         )}
@@ -452,14 +516,13 @@ export function RocketView({
             </span>
           </button>
         ) : (
-          <div className="mt-3 space-y-3 rounded-3xl border border-white/10 bg-zinc-950 p-3.5">
-            {/* Two Modes Only: Stars vs NFT */}
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-zinc-900 p-1">
+          <div className="glass-inset mt-3 space-y-3 rounded-3xl p-3.5">
+            <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-white/[0.04] p-1">
               <button
                 type="button"
                 onClick={() => setStakeType('stars')}
                 className={`flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                  stakeType === 'stars' ? 'bg-white text-black' : 'text-zinc-400'
+                  stakeType === 'stars' ? 'bg-white text-black shadow' : 'text-zinc-400'
                 }`}
               >
                 <Star className="h-3.5 w-3.5" />
@@ -469,7 +532,7 @@ export function RocketView({
                 type="button"
                 onClick={() => setStakeType('nft')}
                 className={`flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                  stakeType === 'nft' ? 'bg-white text-black' : 'text-zinc-400'
+                  stakeType === 'nft' ? 'bg-white text-black shadow' : 'text-zinc-400'
                 }`}
               >
                 <Sparkles className="h-3.5 w-3.5" />
@@ -483,11 +546,11 @@ export function RocketView({
                   Ставка (Stars ⭐)
                 </label>
                 <input
-                  type="number"
-                  min={50}
+                  type="text"
+                  inputMode="decimal"
                   value={stakeStars}
-                  onChange={(e) => setStakeStars(e.target.value)}
-                  className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm text-white outline-none focus:border-white/40"
+                  onChange={(e) => setStakeStars(sanitizeDecimalInput(e.target.value))}
+                  className="glass-inset h-11 w-full rounded-2xl px-3.5 font-mono-num text-sm text-white outline-none focus:border-white/35"
                 />
                 <div className="mt-1.5 flex gap-1.5">
                   {[500, 2500, 10000, 50000].map((v) => (
@@ -495,7 +558,7 @@ export function RocketView({
                       key={v}
                       type="button"
                       onClick={() => setStakeStars(String(v))}
-                      className="min-h-[32px] flex-1 rounded-xl border border-white/10 bg-zinc-900 font-mono-num text-[11px] font-semibold text-zinc-300"
+                      className="glass-chip min-h-[32px] flex-1 rounded-xl font-mono-num text-[11px] font-semibold text-zinc-300"
                     >
                       {formatStars(v)}
                     </button>
@@ -509,11 +572,11 @@ export function RocketView({
                   <span>Забор с x1.25 · от 400K ⭐ — улучшенные</span>
                 </div>
                 {availableNfts.length === 0 ? (
-                  <p className="rounded-2xl border border-white/10 bg-black p-3 text-xs text-zinc-500">
+                  <p className="glass-inset rounded-2xl p-3 text-xs text-zinc-500">
                     Нет свободных NFT в инвентаре.
                   </p>
                 ) : (
-                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                  <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
                     {availableNfts.map((n) => {
                       const active = n.id === selectedNft?.id;
                       return (
@@ -523,17 +586,17 @@ export function RocketView({
                           onClick={() => setSelectedNftId(n.id)}
                           className={`relative flex w-28 shrink-0 flex-col items-center rounded-2xl border p-2.5 text-center transition-colors ${
                             active
-                              ? 'border-white bg-zinc-800'
-                              : 'border-white/10 bg-black'
+                              ? 'border-white/50 bg-white/15'
+                              : 'border-white/10 bg-white/[0.03]'
                           }`}
                         >
                           {active && (
-                            <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-black">
+                            <span className="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-black">
                               <Check className="h-2.5 w-2.5" />
                             </span>
                           )}
                           <div
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-900 p-1"
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 p-1"
                             style={
                               n.backdrop_center_hex && n.backdrop_edge_hex
                                 ? {
@@ -562,14 +625,13 @@ export function RocketView({
               </div>
             )}
 
-            {/* Shared Auto-Cashout Toggle (Stars & NFT, off by default) */}
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black px-3.5 py-2.5">
-              <label className="flex cursor-pointer items-center gap-2.5 select-none">
+            <div className="glass-inset flex items-center justify-between gap-3 rounded-2xl px-3.5 py-2.5">
+              <label className="flex cursor-pointer select-none items-center gap-2.5">
                 <input
                   type="checkbox"
                   checked={autoCashoutEnabled}
                   onChange={(e) => setAutoCashoutEnabled(e.target.checked)}
-                  className="h-4 w-4 accent-white rounded"
+                  className="h-4 w-4 rounded accent-white"
                 />
                 <div>
                   <p className="text-xs font-semibold text-white">Автовывод</p>
@@ -585,12 +647,11 @@ export function RocketView({
                 <div className="flex items-center gap-1.5">
                   <span className="font-mono-num text-xs text-zinc-400">x</span>
                   <input
-                    type="number"
-                    step="0.05"
-                    min={stakeType === 'nft' ? 1.25 : 1.1}
+                    type="text"
+                    inputMode="decimal"
                     value={autoCashout}
-                    onChange={(e) => setAutoCashout(e.target.value)}
-                    className="h-9 w-20 rounded-xl border border-white/15 bg-zinc-900 px-2.5 text-right font-mono-num text-xs font-bold text-white outline-none focus:border-white/40"
+                    onChange={(e) => setAutoCashout(sanitizeDecimalInput(e.target.value))}
+                    className="glass-chip h-9 w-20 rounded-xl px-2.5 text-right font-mono-num text-xs font-bold text-white outline-none focus:border-white/40"
                   />
                 </div>
               )}
@@ -620,7 +681,7 @@ export function RocketView({
       </section>
 
       {/* Online Players Bets */}
-      <section className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4">
+      <section className="glass-card rounded-[28px] p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-zinc-400" />
@@ -638,7 +699,7 @@ export function RocketView({
             {rocket.bets.map((b) => (
               <div
                 key={b.user_id}
-                className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-zinc-950 px-3.5 py-2.5"
+                className="glass-inset flex items-center justify-between gap-2 rounded-2xl px-3.5 py-2.5"
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <img

@@ -104,6 +104,46 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   return data as T;
 }
 
+/**
+ * Cleanly parses decimal numbers typed with comma (",") or dot (".") and optional spaces.
+ */
+export function parseDecimal(raw: string | number | null | undefined): number {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+  if (raw === null || raw === undefined) return 0;
+  const cleaned = String(raw)
+    .replace(/\s+/g, '')
+    .replace(/,/g, '.')
+    .replace(/^\+/, '');
+  if (!cleaned || cleaned === '.') return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Filters raw input while preserving user's "," or "." decimal separator cleanly.
+ */
+export function sanitizeDecimalInput(raw: string): string {
+  let out = '';
+  let hasSep = false;
+  for (const ch of raw.replace(/\s+/g, '')) {
+    if (ch >= '0' && ch <= '9') {
+      out += ch;
+    } else if ((ch === '.' || ch === ',') && !hasSep) {
+      out += out.length === 0 ? '0.' : '.';
+      hasSep = true;
+    }
+  }
+  return out;
+}
+
+function formatGroupedDecimal(val: number, maxDigits: number): string {
+  if (!Number.isFinite(val)) return '0';
+  const fixed = val.toFixed(maxDigits).replace(/\.?0+$/, '');
+  const [intPart, decPart] = fixed.split('.');
+  const groupedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return decPart !== undefined ? `${groupedInt}.${decPart}` : groupedInt;
+}
+
 export function formatStars(val: number): string {
   const num = Math.round(val || 0);
   if (Math.abs(num) >= 1_000_000_000) {
@@ -112,16 +152,13 @@ export function formatStars(val: number): string {
   if (Math.abs(num) >= 10_000_000) {
     return `${(num / 1_000_000).toFixed(2).replace(/\.?0+$/, '')} млн`;
   }
-  return num.toLocaleString('ru-RU');
+  return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 export function formatTon(val: number, digits = 2): string {
   if (!Number.isFinite(val)) return '0';
   if (val > 0 && val < 0.001) return val.toFixed(6).replace(/\.?0+$/, '');
-  return val.toLocaleString('ru-RU', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  });
+  return formatGroupedDecimal(val, digits);
 }
 
 declare global {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Bomb,
   CandlestickChart as CandleIcon,
   ChevronRight,
   Gavel,
@@ -21,11 +22,13 @@ import { SplashScreen } from './components/SplashScreen';
 import { ProfileView } from './components/ProfileView';
 import { UpgraderView } from './components/UpgraderView';
 import { RocketView } from './components/RocketView';
+import { MinesView } from './components/MinesView';
 import { ExchangeView } from './components/ExchangeView';
 import type {
   AppTab,
   CatalogData,
   CollectionItem,
+  GameSubMode,
   MemecoinSummary,
   RocketState,
   UserProfile,
@@ -45,6 +48,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<AppTab>('home');
+  const [gameMode, setGameMode] = useState<GameSubMode>('rocket');
   const [auctionModalOpen, setAuctionModalOpen] = useState(false);
 
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -100,8 +104,8 @@ export default function App() {
     if (tg) {
       tg.ready?.();
       tg.expand?.();
-      tg.setHeaderColor?.('#000000');
-      tg.setBackgroundColor?.('#000000');
+      tg.setHeaderColor?.('#040507');
+      tg.setBackgroundColor?.('#040507');
     }
     const minSplash = new Promise((r) => setTimeout(r, 550));
     Promise.all([loadInitialData(), minSplash]).then(() => setLoading(false));
@@ -225,8 +229,8 @@ export default function App() {
 
   if (loadError || !user || !catalog) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-black px-6 text-center">
-        <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-900 p-6">
+      <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+        <div className="glass-surface w-full max-w-sm rounded-[28px] p-6">
           <h1 className="text-lg font-bold text-white">Ошибка подключения</h1>
           <p className="mt-2 text-xs leading-relaxed text-zinc-400">
             {loadError || 'Профиль недоступен. Откройте Mini App через Telegram-бота.'}
@@ -237,7 +241,7 @@ export default function App() {
               setLoading(true);
               loadInitialData();
             }}
-            className="mt-5 h-12 w-full rounded-2xl bg-white text-sm font-bold text-black"
+            className="mt-5 h-12 w-full rounded-2xl bg-white text-sm font-bold text-black transition-transform active:scale-[0.98]"
           >
             Повторить
           </button>
@@ -253,17 +257,22 @@ export default function App() {
     { id: 'profile', label: 'Профиль', icon: User },
   ];
 
+  const openGame = (mode: GameSubMode) => {
+    setGameMode(mode);
+    setTab('games');
+  };
+
   return (
-    <div className="min-h-screen bg-black text-zinc-100 pb-24">
-      {/* Compact Top Bar */}
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-black/85 backdrop-blur-md pt-safe">
+    <div className="min-h-screen text-zinc-100 pb-28">
+      {/* Liquid Glass Top Header */}
+      <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#06070a]/75 backdrop-blur-2xl pt-safe">
         <div className="mx-auto flex h-13 max-w-5xl items-center justify-between px-4">
           <button
             type="button"
             onClick={() => setTab('home')}
             className="flex min-h-[40px] items-center gap-2.5 text-left"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-black font-bold text-xs">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-xs font-extrabold text-black shadow-sm">
               N
             </div>
             <span className="text-sm font-bold tracking-tight text-white">New NFT</span>
@@ -273,14 +282,14 @@ export default function App() {
             <button
               type="button"
               onClick={() => setTab('exchange')}
-              className="flex min-h-[36px] items-center gap-1.5 rounded-2xl border border-white/10 bg-zinc-900 px-3 font-mono-num text-xs font-semibold text-white"
+              className="glass-chip flex min-h-[34px] items-center gap-1.5 rounded-full px-3 font-mono-num text-xs font-semibold text-white transition-transform active:scale-95"
             >
               <span>{formatTon(user.balance_tons, 2)} TON</span>
             </button>
             <button
               type="button"
               onClick={() => setTab('profile')}
-              className="flex min-h-[36px] items-center gap-2 rounded-2xl border border-white/10 bg-zinc-900 px-3 font-mono-num text-xs font-semibold text-zinc-200"
+              className="glass-chip flex min-h-[34px] items-center gap-1.5 rounded-full px-3 font-mono-num text-xs font-semibold text-zinc-200 transition-transform active:scale-95"
             >
               <span>{formatStars(user.balance_stars)} ⭐</span>
             </button>
@@ -291,14 +300,14 @@ export default function App() {
       {/* Main Content Canvas */}
       <main className="mx-auto max-w-5xl px-4 pt-4">
         {tab === 'home' && (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             {/* Compact Profile Strip */}
-            <section className="flex items-center justify-between rounded-3xl border border-white/10 bg-zinc-900/90 p-4">
+            <section className="glass-surface flex items-center justify-between rounded-[26px] p-3.5">
               <div className="flex min-w-0 items-center gap-3">
                 <img
                   src={resolveAssetUrl(user.avatar_url)}
                   alt={user.first_name}
-                  className="h-12 w-12 shrink-0 rounded-full border border-white/15 bg-zinc-800 object-cover"
+                  className="h-12 w-12 shrink-0 rounded-full border border-white/20 bg-zinc-900 object-cover"
                 />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold text-white">{user.first_name}</p>
@@ -310,53 +319,94 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setTab('profile')}
-                className="flex h-11 items-center gap-1 rounded-2xl border border-white/10 bg-zinc-950 px-3.5 text-xs font-semibold text-zinc-200"
+                className="glass-chip flex h-10 items-center gap-1 rounded-2xl px-3.5 text-xs font-semibold text-zinc-100 transition-transform active:scale-95"
               >
                 <span>Профиль</span>
-                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
               </button>
             </section>
 
-            {/* Featured Large Button: Crypto Exchange */}
+            {/* Featured Light Liquid Glass Card: Crypto Exchange */}
             <button
               type="button"
               onClick={() => setTab('exchange')}
-              className="group relative flex w-full flex-col justify-between overflow-hidden rounded-[28px] border border-white/15 bg-gradient-to-br from-zinc-100 to-zinc-300 p-6 text-left text-black shadow-2xl transition-transform active:scale-[0.985]"
+              className="glass-hero-light group relative flex w-full flex-col justify-between overflow-hidden rounded-[30px] p-5 text-left text-black transition-transform active:scale-[0.985]"
             >
-              <div className="flex w-full items-start justify-between">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-black text-white">
-                  <CandleIcon className="h-6 w-6" />
+              {/* Subtle translucent candlestick chart silhouette */}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 220 120"
+                className="pointer-events-none absolute top-0 right-0 h-full w-3/5 opacity-25"
+                fill="none"
+              >
+                <path
+                  d="M10 92 Q 55 84, 88 64 T 155 44 T 212 22"
+                  stroke="#0f172a"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <g fill="#0f172a">
+                  <rect x="44" y="56" width="5" height="24" rx="2" />
+                  <rect x="46" y="48" width="1.2" height="38" />
+                  <rect x="64" y="44" width="5" height="28" rx="2" />
+                  <rect x="66" y="38" width="1.2" height="42" />
+                  <rect x="84" y="50" width="5" height="20" rx="2" opacity="0.55" />
+                  <rect x="104" y="38" width="5" height="26" rx="2" />
+                  <rect x="106" y="30" width="1.2" height="42" />
+                  <rect x="124" y="28" width="5" height="28" rx="2" />
+                  <rect x="144" y="34" width="5" height="20" rx="2" opacity="0.55" />
+                  <rect x="164" y="22" width="5" height="26" rx="2" />
+                  <rect x="166" y="14" width="1.2" height="42" />
+                  <rect x="184" y="16" width="5" height="24" rx="2" />
+                </g>
+              </svg>
+
+              <div className="relative z-10 flex w-full items-start justify-between">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-black/90 text-white shadow-md">
+                  <CandleIcon className="h-5 w-5" strokeWidth={1.9} />
                 </div>
-                <span className="rounded-xl bg-black/10 px-3 py-1 font-mono-num text-xs font-bold text-black">
+                <span className="rounded-full border border-black/10 bg-black/10 px-3 py-1 font-mono-num text-xs font-bold text-zinc-900 backdrop-blur-md">
                   {coins.length} монет
                 </span>
               </div>
-              <div className="mt-6 flex items-end justify-between gap-4">
+
+              <div className="relative z-10 mt-6 flex items-end justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-extrabold tracking-tight text-black">
+                  <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950">
                     Криптобиржа
                   </h1>
                   <p className="mt-1 text-xs font-medium text-zinc-700">
                     Обмен ⭐ ↔ TON · Мемкоины · Свечные графики и сделки
                   </p>
                 </div>
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black text-white transition-transform group-hover:translate-x-0.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black text-white shadow-md transition-transform group-hover:translate-x-0.5">
                   <ChevronRight className="h-5 w-5" />
                 </div>
               </div>
             </button>
 
-            {/* Quick Action Grid */}
-            <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {/* Restrained Dark Liquid Glass Bento Grid */}
+            <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+              {/* Rocket Tile */}
               <button
                 type="button"
-                onClick={() => setTab('games')}
-                className="flex min-h-[132px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-900/90 p-4 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+                onClick={() => openGame('rocket')}
+                className="glass-surface group relative flex min-h-[136px] flex-col justify-between overflow-hidden rounded-[26px] p-4 text-left transition-all hover:border-white/25 active:scale-[0.98] lg:col-span-2"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-white">
-                  <Rocket className="h-5 w-5" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 110 110"
+                  className="pointer-events-none absolute -right-2 -bottom-2 h-24 w-24 opacity-[0.11] transition-opacity group-hover:opacity-[0.18]"
+                  fill="none"
+                >
+                  <path d="M18 92 Q 52 72, 86 20" stroke="white" strokeWidth="2.5" strokeDasharray="4 4" />
+                  <path d="M88 18 L66 26 L80 40 Z" fill="white" />
+                </svg>
+
+                <div className="glass-chip flex h-10 w-10 items-center justify-center rounded-2xl text-white">
+                  <Rocket className="h-5 w-5" strokeWidth={1.8} />
                 </div>
-                <div>
+                <div className="relative z-10">
                   <p className="text-sm font-bold text-white">Ракетка</p>
                   <p className="mt-0.5 font-mono-num text-xs text-zinc-400">
                     {rocket.phase === 'flying'
@@ -368,29 +418,83 @@ export default function App() {
                 </div>
               </button>
 
+              {/* Mines Tile (New) */}
+              <button
+                type="button"
+                onClick={() => openGame('mines')}
+                className="glass-surface group relative flex min-h-[136px] flex-col justify-between overflow-hidden rounded-[26px] p-4 text-left transition-all hover:border-white/25 active:scale-[0.98] lg:col-span-2"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 100 100"
+                  className="pointer-events-none absolute -right-1 -bottom-1 h-24 w-24 opacity-[0.1] transition-opacity group-hover:opacity-[0.17]"
+                  fill="none"
+                >
+                  <rect x="20" y="20" width="16" height="16" rx="4" fill="white" />
+                  <rect x="42" y="20" width="16" height="16" rx="4" stroke="white" strokeWidth="2" />
+                  <rect x="64" y="20" width="16" height="16" rx="4" fill="white" />
+                  <rect x="20" y="42" width="16" height="16" rx="4" stroke="white" strokeWidth="2" />
+                  <circle cx="50" cy="50" r="8" fill="white" />
+                  <rect x="64" y="42" width="16" height="16" rx="4" fill="white" />
+                  <rect x="20" y="64" width="16" height="16" rx="4" fill="white" />
+                  <rect x="42" y="64" width="16" height="16" rx="4" fill="white" />
+                  <rect x="64" y="64" width="16" height="16" rx="4" stroke="white" strokeWidth="2" />
+                </svg>
+
+                <div className="glass-chip flex h-10 w-10 items-center justify-center rounded-2xl text-white">
+                  <Bomb className="h-5 w-5" strokeWidth={1.8} />
+                </div>
+                <div className="relative z-10">
+                  <p className="text-sm font-bold text-white">Мины</p>
+                  <p className="mt-0.5 text-xs text-zinc-400">Поле 5×5 · Stars и NFT</p>
+                </div>
+              </button>
+
+              {/* Upgrader Tile */}
               <button
                 type="button"
                 onClick={() => setTab('upgrader')}
-                className="flex min-h-[132px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-900/90 p-4 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+                className="glass-surface group relative flex min-h-[136px] flex-col justify-between overflow-hidden rounded-[26px] p-4 text-left transition-all hover:border-white/25 active:scale-[0.98] lg:col-span-2"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-white">
-                  <Sparkles className="h-5 w-5" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 110 110"
+                  className="pointer-events-none absolute -right-2 -bottom-2 h-24 w-24 opacity-[0.1] transition-opacity group-hover:opacity-[0.17]"
+                  fill="none"
+                >
+                  <polygon points="55,14 90,34 90,74 55,94 20,74 20,34" stroke="white" strokeWidth="2.2" />
+                  <polygon points="55,32 74,43 74,65 55,76 36,65 36,43" stroke="white" strokeWidth="1.8" />
+                </svg>
+
+                <div className="glass-chip flex h-10 w-10 items-center justify-center rounded-2xl text-white">
+                  <Sparkles className="h-5 w-5" strokeWidth={1.8} />
                 </div>
-                <div>
+                <div className="relative z-10">
                   <p className="text-sm font-bold text-white">Апгрейдер</p>
                   <p className="mt-0.5 text-xs text-zinc-400">Улучшить NFT</p>
                 </div>
               </button>
 
+              {/* Profile Tile */}
               <button
                 type="button"
                 onClick={() => setTab('profile')}
-                className="flex min-h-[132px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-900/90 p-4 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+                className="glass-surface group relative flex min-h-[136px] flex-col justify-between overflow-hidden rounded-[26px] p-4 text-left transition-all hover:border-white/25 active:scale-[0.98] lg:col-span-3"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-white">
-                  <User className="h-5 w-5" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 110 110"
+                  className="pointer-events-none absolute -right-2 -bottom-2 h-24 w-24 opacity-[0.1] transition-opacity group-hover:opacity-[0.17]"
+                  fill="none"
+                >
+                  <circle cx="55" cy="40" r="16" fill="white" />
+                  <path d="M26 88 C26 68, 84 68, 84 88" fill="white" />
+                </svg>
+
+                <div className="glass-chip flex h-10 w-10 items-center justify-center rounded-2xl text-white">
+                  <User className="h-5 w-5" strokeWidth={1.8} />
                 </div>
-                <div>
+                <div className="relative z-10">
                   <p className="text-sm font-bold text-white">Профиль</p>
                   <p className="mt-0.5 font-mono-num text-xs text-zinc-400">
                     {collection.length} подарков
@@ -398,36 +502,93 @@ export default function App() {
                 </div>
               </button>
 
+              {/* Auction Tile */}
               <button
                 type="button"
                 onClick={() => setAuctionModalOpen(true)}
-                className="flex min-h-[132px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-900/90 p-4 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+                className="glass-surface group relative col-span-2 flex min-h-[108px] flex-row items-center justify-between overflow-hidden rounded-[26px] p-4 text-left transition-all hover:border-white/25 active:scale-[0.98] lg:col-span-3 lg:min-h-[136px] lg:flex-col lg:items-start"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-zinc-300">
-                  <Gavel className="h-5 w-5" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 110 110"
+                  className="pointer-events-none absolute -right-1 -bottom-2 h-24 w-24 opacity-[0.09] transition-opacity group-hover:opacity-[0.15]"
+                  fill="none"
+                >
+                  <rect x="44" y="24" width="32" height="16" rx="4" transform="rotate(-30 44 24)" fill="white" />
+                  <rect x="52" y="44" width="8" height="36" rx="3" transform="rotate(-30 52 44)" fill="white" />
+                  <rect x="24" y="82" width="44" height="8" rx="4" fill="white" />
+                </svg>
+
+                <div className="flex items-center gap-3 lg:flex-col lg:items-start lg:gap-0 lg:justify-between lg:h-full">
+                  <div className="glass-chip flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300">
+                    <Gavel className="h-5 w-5" strokeWidth={1.8} />
+                  </div>
+                  <div className="relative z-10 lg:mt-auto">
+                    <p className="text-sm font-bold text-white">Аукцион</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">В разработке</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-bold text-white">Аукцион</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">В разработке</p>
-                </div>
+                <ChevronRight className="relative z-10 h-4 w-4 text-zinc-500 lg:hidden" />
               </button>
             </section>
           </div>
         )}
 
         {tab === 'games' && (
-          <RocketView
-            user={user}
-            collection={collection}
-            catalog={catalog}
-            rocket={rocket}
-            wsConnected={wsConnected}
-            onSync={(nextUser, nextColl) => {
-              setUser(nextUser);
-              setCollection(nextColl);
-            }}
-            onRocketUpdate={setRocket}
-          />
+          <div className="space-y-3.5">
+            {/* Segmented Mode Switcher: Rocket | Mines */}
+            <div className="glass-inset grid grid-cols-2 gap-1 rounded-[22px] p-1">
+              <button
+                type="button"
+                onClick={() => setGameMode('rocket')}
+                className={`flex h-10 items-center justify-center gap-2 rounded-[18px] text-xs font-semibold transition-all ${
+                  gameMode === 'rocket'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                <span>Ракетка</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameMode('mines')}
+                className={`flex h-10 items-center justify-center gap-2 rounded-[18px] text-xs font-semibold transition-all ${
+                  gameMode === 'mines'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Bomb className="h-3.5 w-3.5" />
+                <span>Мины</span>
+              </button>
+            </div>
+
+            {gameMode === 'rocket' ? (
+              <RocketView
+                user={user}
+                collection={collection}
+                catalog={catalog}
+                rocket={rocket}
+                wsConnected={wsConnected}
+                onSync={(nextUser, nextColl) => {
+                  setUser(nextUser);
+                  setCollection(nextColl);
+                }}
+                onRocketUpdate={setRocket}
+              />
+            ) : (
+              <MinesView
+                user={user}
+                collection={collection}
+                catalog={catalog}
+                onSync={(nextUser, nextColl) => {
+                  setUser(nextUser);
+                  setCollection(nextColl);
+                }}
+              />
+            )}
+          </div>
         )}
 
         {tab === 'upgrader' && (
@@ -464,12 +625,13 @@ export default function App() {
         )}
       </main>
 
-      {/* Fixed Bottom Navigation Bar */}
+      {/* Floating Apple Liquid Glass Bottom Navigation Capsule */}
       <nav
         aria-label="Основная навигация"
-        className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-zinc-950/90 backdrop-blur-xl pb-safe"
+        className="fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-xl"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="mx-auto grid h-16 max-w-5xl grid-cols-4 items-center px-2">
+        <div className="glass-dock grid h-16 grid-cols-4 items-center gap-1 rounded-[28px] px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;
@@ -478,17 +640,19 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setTab(item.id)}
-                className="flex min-h-[44px] flex-col items-center justify-center gap-1 rounded-2xl transition-colors"
+                className={`flex h-12 flex-col items-center justify-center gap-0.5 rounded-[22px] transition-all ${
+                  active ? 'bg-white/[0.11] text-white' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
               >
                 <Icon
-                  className={`h-[22px] w-[22px] transition-colors ${
-                    active ? 'text-white' : 'text-zinc-500'
+                  className={`h-5 w-5 transition-colors ${
+                    active ? 'text-white' : 'text-zinc-400'
                   }`}
-                  strokeWidth={active ? 2.4 : 1.8}
+                  strokeWidth={active ? 2.2 : 1.75}
                 />
                 <span
                   className={`text-[10px] font-semibold tracking-tight ${
-                    active ? 'text-white' : 'text-zinc-500'
+                    active ? 'text-white' : 'text-zinc-400'
                   }`}
                 >
                   {item.label}
@@ -501,9 +665,9 @@ export default function App() {
 
       {/* Auction Unavailable Modal */}
       {auctionModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-white/15 bg-zinc-900 p-6 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800 text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
+          <div className="glass-surface w-full max-w-sm rounded-[28px] p-6 text-center">
+            <div className="glass-chip mx-auto flex h-12 w-12 items-center justify-center rounded-2xl text-white">
               <Gavel className="h-6 w-6" />
             </div>
             <h3 className="mt-4 text-base font-bold text-white">Аукцион</h3>
@@ -513,7 +677,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setAuctionModalOpen(false)}
-              className="mt-5 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-white text-xs font-bold text-black"
+              className="mt-5 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-white text-xs font-bold text-black transition-transform active:scale-[0.98]"
             >
               <X className="h-4 w-4" />
               <span>Понятно</span>

@@ -177,7 +177,7 @@ _BOT_USERNAME_CACHE: Optional[str] = None
 
 COOLDOWN_SECONDS = 1 * 60 * 60          # 1 час между выбиванием NFT в группах
 COOLDOWN_ENABLED = True
-CHAT_DROP_CHANCE = 0.90                 # 90% шанс дропа при слове NFT
+CHAT_DROP_CHANCE = 0.55                 # 55% шанс дропа при слове NFT
 STAR_RUB_RATE = 1.5                     # 1 Star = 1.5 RUB
 TON_RUB_RATE = 100.0                    # 1 TON = 100 RUB
 ADMIN_IDS = {684535319, 7459502130}     # Telegram ID администраторов
@@ -219,8 +219,10 @@ MINI_APP_URL = os.environ.get("MINI_APP_URL", "").strip()
 TON_STAR_RATE = 1_000.0
 MEMECOIN_MIN_LEVEL = 30
 MEMECOIN_CREATE_TON_COST = 20_000.0
-UPGRADER_CHANCE_FACTOR = 0.78
+UPGRADER_CHANCE_FACTOR = 0.55
 ROCKET_UPGRADE_MULT_PENALTY = 1.28
+MEMECOIN_CURVE_SLOPE = 0.0000005
+MINES_HOUSE_EDGE = 0.90
 
 CHECK_DISCLAIMER_QUOTE = (
     "<blockquote>"
@@ -3078,6 +3080,24 @@ def db_init() -> None:
                 status TEXT NOT NULL,
                 created_ts INTEGER NOT NULL,
                 crashed_ts INTEGER DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mines_games (
+                user_id INTEGER PRIMARY KEY,
+                stake_type TEXT NOT NULL,
+                stake_stars INTEGER NOT NULL,
+                collection_item_id INTEGER DEFAULT NULL,
+                source_is_upgraded INTEGER NOT NULL DEFAULT 0,
+                item_name TEXT DEFAULT NULL,
+                item_image_url TEXT DEFAULT NULL,
+                mines_count INTEGER NOT NULL,
+                mines_json TEXT NOT NULL,
+                revealed_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                multiplier REAL NOT NULL DEFAULT 1.0,
+                payout_stars INTEGER NOT NULL DEFAULT 0,
+                reward_name TEXT DEFAULT NULL,
+                created_ts INTEGER NOT NULL
             );
             """
         )
@@ -8241,37 +8261,37 @@ _FARM_50_POOL, _FARM_50_WEIGHTS = _build_case_weights(
     uniform_filler=True,
 )
 _ALL_OR_NOTHING_POOL, _ALL_OR_NOTHING_WEIGHTS = _build_case_weights(
-    {"pepe_heart": 0.1},
+    {"pepe_heart": 0.04},
     [g for g in GIFTS if g.key != "pepe_heart"],
 )
 _FARM_CAP_POOL, _FARM_CAP_WEIGHTS = _build_case_weights(
-    {"cap_tg": 6.5, "heart_lock_key": 1.0, "pepe_heart": 0.8},
+    {"cap_tg": 4.0, "heart_lock_key": 0.6, "pepe_heart": 0.4},
     [g for g in GIFTS if g.key not in ("cap_tg", "heart_lock_key", "pepe_heart")],
 )
 _FARM_LOCKET_POOL, _FARM_LOCKET_WEIGHTS = _build_case_weights(
-    {"heart_lock_key": 6.5, "cap_tg": 12.0, "pepe_heart": 2.0},
+    {"heart_lock_key": 4.0, "cap_tg": 8.0, "pepe_heart": 1.0},
     [g for g in GIFTS if g.key not in ("cap_tg", "heart_lock_key", "pepe_heart")],
 )
 _FARM_50K_POOL, _FARM_50K_WEIGHTS = _build_case_weights(
-    {"cap_tg": 20.0, "heart_lock_key": 10.0, "pepe_heart": 3.0},
+    {"cap_tg": 12.0, "heart_lock_key": 6.0, "pepe_heart": 1.5},
     [g for g in GIFTS if g.stars <= 3_500],
 )
 _FARM_PLUS_POOL, _FARM_PLUS_WEIGHTS = _build_case_weights(
-    {"pepe_heart": 25.0, "cap_tg": 25.0, "heart_lock_key": 15.0},
+    {"pepe_heart": 14.0, "cap_tg": 16.0, "heart_lock_key": 10.0},
     [g for g in GIFTS if g.stars <= 450],
     uniform_filler=True,
 )
 _ELITE_1M_EXPENSIVE_WEIGHTS: Dict[str, float] = {
-    "pepe_heart": 20.0,
-    "heart_lock_key": 13.0,
-    "cap_tg": 12.0,
-    "trophy_cup": 12.0,
-    "hero_figure": 10.0,
-    "bonded_ring": 9.0,
-    "hockey_mask": 8.0,
-    "gem_crystal": 6.0,
-    "sunglasses": 5.0,
-    "briefcase": 5.0,
+    "pepe_heart": 12.0,
+    "heart_lock_key": 10.0,
+    "cap_tg": 10.0,
+    "trophy_cup": 11.0,
+    "hero_figure": 11.0,
+    "bonded_ring": 10.0,
+    "hockey_mask": 10.0,
+    "gem_crystal": 10.0,
+    "sunglasses": 8.0,
+    "briefcase": 8.0,
 }
 _ELITE_1M_POOL = [GIFTS_BY_KEY[k] for k in _ELITE_1M_EXPENSIVE_WEIGHTS if k in GIFTS_BY_KEY]
 _ELITE_1M_WEIGHTS = [_ELITE_1M_EXPENSIVE_WEIGHTS[g.key] for g in _ELITE_1M_POOL]
@@ -8296,7 +8316,7 @@ CASE_TIERS = {
     "all_or_nothing": {
         "name": "🎲 Всё или ничего",
         "price": 1_000,
-        "desc": "0.1% Plush Pepe + все подарки",
+        "desc": "0.04% Plush Pepe + все подарки",
         "pool": _ALL_OR_NOTHING_POOL,
         "weights": _ALL_OR_NOTHING_WEIGHTS,
         "rolls_buffs": False,
@@ -8312,7 +8332,7 @@ CASE_TIERS = {
     "farm_cap": {
         "name": "🧢 Farm Кепки Дурова",
         "price": 10_000,
-        "desc": "6.5% Кепка • 1% Сердце • 0.8% Пепе",
+        "desc": "4% Кепка • 0.6% Сердце • 0.4% Пепе",
         "pool": _FARM_CAP_POOL,
         "weights": _FARM_CAP_WEIGHTS,
         "rolls_buffs": False,
@@ -8320,7 +8340,7 @@ CASE_TIERS = {
     "farm_locket": {
         "name": "💝 Farm Heart Locket",
         "price": 25_000,
-        "desc": "6.5% Сердце • 12% Кепка • 2% Пепе",
+        "desc": "4% Сердце • 8% Кепка • 1% Пепе",
         "pool": _FARM_LOCKET_POOL,
         "weights": _FARM_LOCKET_WEIGHTS,
         "rolls_buffs": False,
@@ -8328,7 +8348,7 @@ CASE_TIERS = {
     "farm_50k": {
         "name": "🔥 Farm Кейс",
         "price": 50_000,
-        "desc": "20% Кепка • 10% Сердце • 3% Пепе",
+        "desc": "12% Кепка • 6% Сердце • 1.5% Пепе",
         "pool": _FARM_50K_POOL,
         "weights": _FARM_50K_WEIGHTS,
         "rolls_buffs": False,
@@ -8336,7 +8356,7 @@ CASE_TIERS = {
     "farm_plus": {
         "name": "🐸 Farm +",
         "price": 250_000,
-        "desc": "25% Пепе • 25% Кепка • 15% Сердце",
+        "desc": "14% Пепе • 16% Кепка • 10% Сердце",
         "pool": _FARM_PLUS_POOL,
         "weights": _FARM_PLUS_WEIGHTS,
         "rolls_buffs": False,
@@ -8344,7 +8364,7 @@ CASE_TIERS = {
     "elite_1m": {
         "name": "💎 Elite Buff Case",
         "price": 1_000_000,
-        "desc": "45% Топ NFT с БАФФАМИ + дорогие",
+        "desc": "32% Топ NFT с БАФФАМИ + дорогие",
         "pool": _ELITE_1M_POOL,
         "weights": _ELITE_1M_WEIGHTS,
         "rolls_buffs": True,
@@ -19262,7 +19282,24 @@ def get_mini_app_catalog() -> dict:
         "upgrader_chance_factor": UPGRADER_CHANCE_FACTOR,
         "mono_price_mult": MONO_PRICE_MULT,
         "rocket_upgrade_mult_penalty": ROCKET_UPGRADE_MULT_PENALTY,
+        "memecoin_curve_slope": MEMECOIN_CURVE_SLOPE,
     }
+
+
+def _parse_float_num(val, default: float = 0.0) -> float:
+    if val is None or isinstance(val, bool):
+        return default
+    if isinstance(val, (int, float)):
+        f = float(val)
+        return f if math.isfinite(f) else default
+    s = re.sub(r"\s+", "", str(val)).replace(",", ".").lstrip("+")
+    if not s:
+        return default
+    try:
+        f = float(s)
+        return f if math.isfinite(f) else default
+    except Exception:
+        return default
 
 
 def compute_upgrader_target_and_chance(
@@ -19284,7 +19321,7 @@ def compute_upgrader_target_and_chance(
         value_buff_pct,
     )
     raw_ratio = max(1, int(source_val)) / max(1, int(target_stars))
-    chance_pct = round(max(1.0, min(72.0, raw_ratio * 100.0 * UPGRADER_CHANCE_FACTOR)), 2)
+    chance_pct = round(max(0.01, min(68.0, raw_ratio * 100.0 * UPGRADER_CHANCE_FACTOR)), 2)
     return model_def, backdrop_def, int(target_stars), chance_pct
 
 
@@ -19616,7 +19653,7 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
         res_tok = float(coin["reserve_token"] or 0.0)
         total_supply = float(coin["total_supply"] or 100_000_000.0)
         cur_price = max(0.00001, float(coin["price_ton"] or 0.0002))
-        slope = 0.0002 / max(100_000_000.0, total_supply)
+        slope = MEMECOIN_CURVE_SLOPE * (100_000_000.0 / max(100_000_000.0, total_supply))
         now_ts = int(time.time())
         bucket_ts = now_ts - (now_ts % 60)
         fee_ton = 0.0
@@ -19665,11 +19702,11 @@ def trade_memecoin_db(user_id: int, coin_id: int, side: str, amount: float, unit
             tokens_in = float(amount)
             h = conn.execute("SELECT amount FROM memecoin_holdings WHERE user_id=? AND coin_id=?", (user_id, coin_id)).fetchone()
             owned = float(h["amount"] or 0.0) if h else 0.0
-            if tokens_in <= 0 or owned + 1e-6 < tokens_in:
+            if tokens_in <= 0 or owned + 1e-4 < tokens_in:
                 conn.rollback()
                 return False, "Недостаточно токенов для продажи.", {}
             tokens_in = min(tokens_in, owned)
-            min_floor = 0.00005
+            min_floor = 0.00001
             new_price = round(max(min_floor, cur_price - slope * tokens_in), 8)
             gross_ton_out = max(0.0, tokens_in * (cur_price + new_price) * 0.5)
             fee_ton = round(gross_ton_out * 0.15, 6)
@@ -19923,9 +19960,9 @@ class _RocketEngine:
 
     def _roll_crash_point(self) -> float:
         r = random.random()
-        if r < 0.08:
+        if r < 0.13:
             return 1.00
-        val = 0.92 / max(1e-6, 1.0 - r)
+        val = 0.85 / max(1e-6, 1.0 - r)
         return round(min(100.0, max(1.01, val)), 2)
 
     def public_state(self) -> dict:
@@ -20245,6 +20282,294 @@ async def _rocket_engine_loop() -> None:
         raise
 
 
+def _calc_mines_multiplier(mines_count: int, revealed_count: int) -> float:
+    if revealed_count <= 0:
+        return 1.0
+    m = max(3, min(24, int(mines_count)))
+    safe_total = 25 - m
+    r_cnt = min(int(revealed_count), safe_total)
+    prob = 1.0
+    for i in range(r_cnt):
+        prob *= (safe_total - i) / float(25 - i)
+    if prob <= 0:
+        return 1.0
+    return round(max(1.01, (1.0 / prob) * MINES_HOUSE_EDGE), 2)
+
+
+def _serialize_mines_row(row) -> Optional[dict]:
+    if not row:
+        return None
+    status = str(row["status"])
+    revealed = json.loads(row["revealed_json"] or "[]")
+    mines = json.loads(row["mines_json"] or "[]")
+    mines_cnt = int(row["mines_count"])
+    cur_mult = float(row["multiplier"] or 1.0)
+    next_mult = _calc_mines_multiplier(mines_cnt, len(revealed) + 1) if status == "active" and len(revealed) < (25 - mines_cnt) else cur_mult
+    return {
+        "stake_type": row["stake_type"],
+        "stake_stars": int(row["stake_stars"]),
+        "collection_item_id": int(row["collection_item_id"]) if row["collection_item_id"] is not None else None,
+        "source_is_upgraded": bool(int(row["source_is_upgraded"] or 0)),
+        "item_name": row["item_name"],
+        "item_image_url": row["item_image_url"],
+        "mines_count": mines_cnt,
+        "revealed": revealed,
+        "mines": mines if status != "active" else None,
+        "status": status,
+        "multiplier": round(cur_mult, 2),
+        "next_multiplier": round(next_mult, 2),
+        "payout_stars": int(row["payout_stars"] or 0),
+        "reward_name": row["reward_name"],
+    }
+
+
+def mines_get_state_db(user_id: int) -> Optional[dict]:
+    conn = db_connect()
+    try:
+        row = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        return _serialize_mines_row(row)
+    finally:
+        conn.close()
+
+
+def mines_start_db(
+    user_id: int,
+    stake_type: str,
+    mines_count: int,
+    stake_stars: int = 0,
+    collection_item_id: int = 0,
+) -> Tuple[bool, str, dict]:
+    if mines_count < 3 or mines_count > 24:
+        return False, "Количество мин должно быть от 3 до 24.", {}
+    conn = db_connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT status FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        if existing and existing["status"] == "active":
+            conn.rollback()
+            return False, "Завершите текущую игру в Мины.", {}
+
+        u = conn.execute("SELECT balance_stars FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not u:
+            conn.rollback()
+            return False, "Пользователь не найден.", {}
+
+        item_id_val = None
+        src_up = 0
+        item_name = None
+        item_img = None
+        stake_val = 0
+
+        if stake_type == "stars":
+            stake_val = int(stake_stars or 0)
+            if stake_val < 50:
+                conn.rollback()
+                return False, "Минимальная ставка — 50 ⭐.", {}
+            if int(u["balance_stars"] or 0) < stake_val:
+                conn.rollback()
+                return False, "Недостаточно Stars на балансе.", {}
+            conn.execute("UPDATE users SET balance_stars=balance_stars-? WHERE user_id=?", (stake_val, user_id))
+            record_star_flow(spent=stake_val, conn=conn)
+        elif stake_type == "nft":
+            item = conn.execute("SELECT * FROM collection WHERE id=? AND user_id=?", (collection_item_id, user_id)).fetchone()
+            if not item:
+                conn.rollback()
+                return False, "NFT не найден в коллекции.", {}
+            if int(item["is_listed"] or 0) != 0:
+                conn.rollback()
+                return False, "Этот NFT сейчас занят.", {}
+            stake_val = int(get_item_display_value(item))
+            item_id_val = int(collection_item_id)
+            src_up = 1 if int(item["is_upgraded"] or 0) else 0
+            img_u, _ = _item_image_urls(item)
+            sg = GIFTS_BY_KEY.get(canonical_gift_key(item["gift_key"]))
+            item_name = item["model_name"] or (sg.name if sg else item["gift_key"])
+            item_img = img_u
+            conn.execute("UPDATE collection SET is_listed=2 WHERE id=?", (item_id_val,))
+        else:
+            conn.rollback()
+            return False, "Неизвестный тип ставки.", {}
+
+        mines_list = sorted(random.sample(range(25), mines_count))
+        conn.execute(
+            "INSERT INTO mines_games "
+            "(user_id, stake_type, stake_stars, collection_item_id, source_is_upgraded, item_name, item_image_url, mines_count, mines_json, revealed_json, status, multiplier, payout_stars, reward_name, created_ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'active', 1.0, 0, NULL, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "stake_type=excluded.stake_type, stake_stars=excluded.stake_stars, collection_item_id=excluded.collection_item_id, "
+            "source_is_upgraded=excluded.source_is_upgraded, item_name=excluded.item_name, item_image_url=excluded.item_image_url, "
+            "mines_count=excluded.mines_count, mines_json=excluded.mines_json, revealed_json='[]', status='active', "
+            "multiplier=1.0, payout_stars=0, reward_name=NULL, created_ts=excluded.created_ts",
+            (
+                user_id,
+                stake_type,
+                stake_val,
+                item_id_val,
+                src_up,
+                item_name,
+                item_img,
+                mines_count,
+                json.dumps(mines_list),
+                int(time.time()),
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        return True, "OK", {"game": _serialize_mines_row(row)}
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def _finalize_mines_win_locked(conn: sqlite3.Connection, row, mult: float) -> Tuple[int, bool, Optional[str]]:
+    user_id = int(row["user_id"])
+    stake_type = str(row["stake_type"])
+    stake_stars = int(row["stake_stars"])
+    if stake_type == "stars":
+        payout = int(round(stake_stars * mult))
+        conn.execute("UPDATE users SET balance_stars=balance_stars+?, xp=xp+250 WHERE user_id=?", (payout, user_id))
+        record_star_flow(issued=payout, conn=conn)
+        return payout, False, None
+    item_id = int(row["collection_item_id"])
+    achieved_val = int(round(float(stake_stars) * float(mult)))
+    reward = resolve_auto_rocket_nft(
+        achieved_val,
+        stake_stars,
+        bool(int(row["source_is_upgraded"] or 0)),
+        item_id,
+    )
+    if reward["is_upgraded"]:
+        mx = conn.execute("SELECT COALESCE(MAX(upgrade_num), 0) AS mx FROM collection").fetchone()
+        next_num = int(mx["mx"] or 0) + 1
+        conn.execute(
+            "UPDATE collection SET gift_key=?, is_upgraded=1, model_name=?, backdrop_key=?, upgraded_stars=?, upgrade_num=?, is_listed=0 WHERE id=?",
+            (
+                reward["gift_key"],
+                reward["model_name"],
+                reward["backdrop_key"],
+                int(reward["stars"]),
+                next_num,
+                item_id,
+            ),
+        )
+        conn.execute("UPDATE users SET xp=xp+3500 WHERE user_id=?", (user_id,))
+    else:
+        conn.execute(
+            "UPDATE collection SET gift_key=?, is_upgraded=0, model_name=NULL, backdrop_key=NULL, upgraded_stars=0, is_listed=0 WHERE id=?",
+            (reward["gift_key"], item_id),
+        )
+        conn.execute("UPDATE users SET xp=xp+900 WHERE user_id=?", (user_id,))
+    return int(reward["stars"]), bool(reward["is_upgraded"]), str(reward["title"])
+
+
+def mines_reveal_db(user_id: int, cell: int) -> Tuple[bool, str, dict]:
+    if cell < 0 or cell >= 25:
+        return False, "Некорректная ячейка.", {}
+    conn = db_connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        if not row or row["status"] != "active":
+            conn.rollback()
+            return False, "Нет активной игры.", {}
+        mines = json.loads(row["mines_json"] or "[]")
+        revealed = json.loads(row["revealed_json"] or "[]")
+        if cell in revealed:
+            conn.rollback()
+            return False, "Эта клетка уже открыта.", {}
+
+        if cell in mines:
+            revealed.append(cell)
+            conn.execute(
+                "UPDATE mines_games SET revealed_json=?, status='lost', payout_stars=0 WHERE user_id=?",
+                (json.dumps(revealed), user_id),
+            )
+            if row["stake_type"] == "nft" and row["collection_item_id"] is not None:
+                conn.execute("DELETE FROM collection WHERE id=? AND user_id=?", (int(row["collection_item_id"]), user_id))
+            conn.commit()
+            fresh = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+            return True, "OK", {"hit_mine": True, "auto_won": False, "game": _serialize_mines_row(fresh)}
+
+        revealed.append(cell)
+        mines_cnt = int(row["mines_count"])
+        new_mult = _calc_mines_multiplier(mines_cnt, len(revealed))
+        safe_total = 25 - mines_cnt
+
+        if len(revealed) >= safe_total:
+            payout, upgraded, rname = _finalize_mines_win_locked(conn, row, new_mult)
+            conn.execute(
+                "UPDATE mines_games SET revealed_json=?, status='won', multiplier=?, payout_stars=?, reward_name=? WHERE user_id=?",
+                (json.dumps(revealed), new_mult, payout, rname, user_id),
+            )
+            conn.commit()
+            fresh = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+            return True, "OK", {
+                "hit_mine": False,
+                "auto_won": True,
+                "payout_stars": payout,
+                "upgraded": upgraded,
+                "reward_name": rname,
+                "game": _serialize_mines_row(fresh),
+            }
+
+        conn.execute(
+            "UPDATE mines_games SET revealed_json=?, multiplier=? WHERE user_id=?",
+            (json.dumps(revealed), new_mult, user_id),
+        )
+        conn.commit()
+        fresh = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        return True, "OK", {"hit_mine": False, "auto_won": False, "game": _serialize_mines_row(fresh)}
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def mines_cashout_db(user_id: int) -> Tuple[bool, str, dict]:
+    conn = db_connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        if not row or row["status"] != "active":
+            conn.rollback()
+            return False, "Нет активной игры.", {}
+        revealed = json.loads(row["revealed_json"] or "[]")
+        if len(revealed) < 1:
+            conn.rollback()
+            return False, "Откройте хотя бы 1 клетку перед выводом.", {}
+        mult = float(row["multiplier"] or 1.0)
+        payout, upgraded, rname = _finalize_mines_win_locked(conn, row, mult)
+        conn.execute(
+            "UPDATE mines_games SET status='won', payout_stars=?, reward_name=? WHERE user_id=?",
+            (payout, rname, user_id),
+        )
+        conn.commit()
+        fresh = conn.execute("SELECT * FROM mines_games WHERE user_id=?", (user_id,)).fetchone()
+        return True, "OK", {
+            "payout_stars": payout,
+            "upgraded": upgraded,
+            "reward_name": rname,
+            "game": _serialize_mines_row(fresh),
+        }
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
 def _cors_headers(request) -> dict:
     origin = request.headers.get("Origin", "*")
     return {
@@ -20332,9 +20657,8 @@ async def _api_exchange_swap(request):
     if not u:
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
     body = await _read_json_body(request)
-    try:
-        amount = float(body.get("amount") or 0)
-    except Exception:
+    amount = _parse_float_num(body.get("amount"), 0.0)
+    if amount <= 0:
         return _json_response(request, {"ok": False, "error": "Некорректная сумма."}, status=400)
     ok, msg, res = swap_stars_ton_db(
         int(u["user_id"]),
@@ -20384,9 +20708,8 @@ async def _api_coin_trade(request):
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
     coin_id = int(request.match_info["id"])
     body = await _read_json_body(request)
-    try:
-        amount = float(body.get("amount") or 0)
-    except Exception:
+    amount = _parse_float_num(body.get("amount"), 0.0)
+    if amount <= 0:
         return _json_response(request, {"ok": False, "error": "Некорректная сумма сделки."}, status=400)
     ok, msg, res = trade_memecoin_db(
         int(u["user_id"]),
@@ -20414,9 +20737,8 @@ async def _api_coin_transfer(request):
         return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
     coin_id = int(request.match_info["id"])
     body = await _read_json_body(request)
-    try:
-        amount = float(body.get("amount") or 0)
-    except Exception:
+    amount = _parse_float_num(body.get("amount"), 0.0)
+    if amount <= 0:
         return _json_response(request, {"ok": False, "error": "Некорректное количество."}, status=400)
     ok, msg, res = transfer_memecoin_db(
         int(u["user_id"]),
@@ -20477,6 +20799,67 @@ async def _api_rocket_cashout(request):
     fresh_u = get_or_create_user(int(u["user_id"]), "", "")
     items = [serialize_collection_item(r) for r in get_user_collection(int(u["user_id"]))]
     return _json_response(request, {"ok": True, **res, "rocket": _ROCKET.public_state(), "user": serialize_user_profile(fresh_u), "collection": items})
+
+
+async def _api_mines_state(request):
+    u = await _auth_user_from_request(request)
+    if not u:
+        return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
+    return _json_response(request, {"ok": True, "game": mines_get_state_db(int(u["user_id"]))})
+
+
+async def _api_mines_start(request):
+    u = await _auth_user_from_request(request)
+    if not u:
+        return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
+    body = await _read_json_body(request)
+    try:
+        mines_count = int(body.get("mines_count") or 3)
+        stake_stars = int(round(_parse_float_num(body.get("stake_stars"), 0.0)))
+        collection_item_id = int(body.get("collection_item_id") or 0)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректные параметры игры."}, status=400)
+    ok, msg, res = mines_start_db(
+        int(u["user_id"]),
+        str(body.get("stake_type") or "stars"),
+        mines_count,
+        stake_stars=stake_stars,
+        collection_item_id=collection_item_id,
+    )
+    if not ok:
+        return _json_response(request, {"ok": False, "error": msg}, status=400)
+    fresh_u = get_or_create_user(int(u["user_id"]), "", "")
+    items = [serialize_collection_item(r) for r in get_user_collection(int(u["user_id"]))]
+    return _json_response(request, {"ok": True, **res, "user": serialize_user_profile(fresh_u), "collection": items})
+
+
+async def _api_mines_reveal(request):
+    u = await _auth_user_from_request(request)
+    if not u:
+        return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
+    body = await _read_json_body(request)
+    try:
+        cell = int(body.get("cell") if body.get("cell") is not None else -1)
+    except Exception:
+        return _json_response(request, {"ok": False, "error": "Некорректная клетка."}, status=400)
+    ok, msg, res = mines_reveal_db(int(u["user_id"]), cell)
+    if not ok:
+        return _json_response(request, {"ok": False, "error": msg}, status=400)
+    fresh_u = get_or_create_user(int(u["user_id"]), "", "")
+    items = [serialize_collection_item(r) for r in get_user_collection(int(u["user_id"]))]
+    return _json_response(request, {"ok": True, **res, "user": serialize_user_profile(fresh_u), "collection": items})
+
+
+async def _api_mines_cashout(request):
+    u = await _auth_user_from_request(request)
+    if not u:
+        return _json_response(request, {"ok": False, "error": "Unauthorized"}, status=401)
+    ok, msg, res = mines_cashout_db(int(u["user_id"]))
+    if not ok:
+        return _json_response(request, {"ok": False, "error": msg}, status=400)
+    fresh_u = get_or_create_user(int(u["user_id"]), "", "")
+    items = [serialize_collection_item(r) for r in get_user_collection(int(u["user_id"]))]
+    return _json_response(request, {"ok": True, **res, "user": serialize_user_profile(fresh_u), "collection": items})
 
 
 async def _api_asset_gift(request):
@@ -20556,6 +20939,10 @@ def build_miniapp_web_app():
     web_app.router.add_get("/api/rocket/state", _api_rocket_state)
     web_app.router.add_post("/api/rocket/bet", _api_rocket_bet)
     web_app.router.add_post("/api/rocket/cashout", _api_rocket_cashout)
+    web_app.router.add_get("/api/mines/state", _api_mines_state)
+    web_app.router.add_post("/api/mines/start", _api_mines_start)
+    web_app.router.add_post("/api/mines/reveal", _api_mines_reveal)
+    web_app.router.add_post("/api/mines/cashout", _api_mines_cashout)
     web_app.router.add_get("/api/assets/gift/{key}", _api_asset_gift)
     web_app.router.add_get("/api/assets/model/{gift_key}/{filename}", _api_asset_model)
     web_app.router.add_get("/api/assets/avatar/{user_id}", _api_asset_avatar)

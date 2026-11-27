@@ -13,9 +13,20 @@ const PORT = Number(process.env.PORT || 3000);
 const TON_STAR_RATE = 1000;
 const MEMECOIN_MIN_LEVEL = 30;
 const MEMECOIN_CREATE_TON_COST = 20000;
-const UPGRADER_CHANCE_FACTOR = 0.78;
+const UPGRADER_CHANCE_FACTOR = 0.55;
 const MONO_PRICE_MULT = 6.0;
 const ROCKET_UPGRADE_MULT_PENALTY = 1.28;
+const MEMECOIN_CURVE_SLOPE = 0.0000005;
+const MINES_HOUSE_EDGE = 0.9;
+
+function parseNum(val: unknown, fallback = 0): number {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : fallback;
+  if (typeof val === 'boolean' || val === null || val === undefined) return fallback;
+  const cleaned = String(val).replace(/\s+/g, '').replace(/,/g, '.').replace(/^\+/, '');
+  if (!cleaned) return fallback;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 interface ModelDef {
   name: string;
@@ -508,8 +519,8 @@ const rocket = {
 
 function rollCrashPoint(): number {
   const r = Math.random();
-  if (r < 0.08) return 1.0;
-  return Number(Math.min(100, Math.max(1.01, 0.92 / Math.max(1e-6, 1 - r))).toFixed(2));
+  if (r < 0.13) return 1.0;
+  return Number(Math.min(100, Math.max(1.01, 0.85 / Math.max(1e-6, 1 - r))).toFixed(2));
 }
 
 function getRocketPublicState() {
@@ -798,6 +809,7 @@ async function startServer() {
         upgrader_chance_factor: UPGRADER_CHANCE_FACTOR,
         mono_price_mult: MONO_PRICE_MULT,
         rocket_upgrade_mult_penalty: ROCKET_UPGRADE_MULT_PENALTY,
+        memecoin_curve_slope: MEMECOIN_CURVE_SLOPE,
       },
     });
   });
@@ -824,7 +836,7 @@ async function startServer() {
     if (targetStars <= src.display_stars) {
       return res.status(400).json({ ok: false, error: 'Целевой NFT должен быть дороже вашего текущего NFT.' });
     }
-    const chancePct = Number(Math.max(1, Math.min(72, (src.display_stars / Math.max(1, targetStars)) * 100 * UPGRADER_CHANCE_FACTOR)).toFixed(2));
+    const chancePct = Number(Math.max(0.01, Math.min(68, (src.display_stars / Math.max(1, targetStars)) * 100 * UPGRADER_CHANCE_FACTOR)).toFixed(2));
     const roll = Number((Math.random() * 100).toFixed(2));
     const won = roll < chancePct;
 
@@ -874,7 +886,7 @@ async function startServer() {
   app.post('/api/exchange/swap', (req, res) => {
     const u = resolveRequestUser(req);
     const direction = String(req.body?.direction || 'stars_to_ton');
-    const amount = Number(req.body?.amount || 0);
+    const amount = parseNum(req.body?.amount, 0);
     if (!(amount > 0)) return res.status(400).json({ ok: false, error: 'Укажите сумму больше нуля.' });
 
     if (direction === 'stars_to_ton') {
@@ -975,13 +987,13 @@ async function startServer() {
     if (!coin) return res.status(404).json({ ok: false, error: 'Монета не найдена.' });
     const side = String(req.body?.side || '');
     const unit = String(req.body?.unit || 'ton');
-    const amount = Number(req.body?.amount || 0);
+    const amount = parseNum(req.body?.amount, 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ ok: false, error: 'Укажите сумму больше 0.' });
     }
 
     const curPrice = Math.max(0.00001, coin.price_ton);
-    const slope = 0.0002 / Math.max(100_000_000, coin.total_supply);
+    const slope = MEMECOIN_CURVE_SLOPE * (100_000_000 / Math.max(100_000_000, coin.total_supply));
     const nowSec = Math.floor(Date.now() / 1000);
     const bucket = nowSec - (nowSec % 60);
     let tonVol = 0;
@@ -1019,9 +1031,9 @@ async function startServer() {
       tokDelta = tokensOut;
     } else if (side === 'sell') {
       const owned = coin.holdings.get(u.user_id) || 0;
-      if (owned + 1e-6 < amount) return res.status(400).json({ ok: false, error: 'Недостаточно токенов для продажи.' });
+      if (owned + 1e-4 < amount) return res.status(400).json({ ok: false, error: 'Недостаточно токенов для продажи.' });
       const tokIn = Math.min(amount, owned);
-      const minFloor = 0.00005;
+      const minFloor = 0.00001;
       const newPrice = Number(Math.max(minFloor, curPrice - slope * tokIn).toFixed(8));
       grossTonOut = Math.max(0, tokIn * (curPrice + newPrice) * 0.5);
       feeTon = Number((grossTonOut * 0.15).toFixed(6));
@@ -1094,7 +1106,7 @@ async function startServer() {
     const u = resolveRequestUser(req);
     const coin = memecoins.get(Number(req.params.id));
     if (!coin) return res.status(404).json({ ok: false, error: 'Монета не найдена.' });
-    const amount = Number(req.body?.amount || 0);
+    const amount = parseNum(req.body?.amount, 0);
     const rawRec = String(req.body?.recipient || '').trim();
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ ok: false, error: 'Укажите количество токенов больше 0.' });
@@ -1217,6 +1229,256 @@ async function startServer() {
     const result = settleRocketBet(bet, rocket.multiplier);
     broadcastWS('rocket_state', getRocketPublicState());
     res.json({ ok: true, ...result, rocket: getRocketPublicState(), user: serializeUser(u), collection: u.collection });
+  });
+
+  // Mines Game Engine (Server-Authoritative)
+  interface MinesGameInternal {
+    stake_type: 'stars' | 'nft';
+    stake_stars: number;
+    collection_item_id: number | null;
+    source_is_upgraded: boolean;
+    item_name: string | null;
+    item_image_url: string | null;
+    mines_count: number;
+    mines: number[];
+    revealed: number[];
+    status: 'active' | 'won' | 'lost';
+    multiplier: number;
+    payout_stars: number;
+    reward_name: string | null;
+  }
+
+  const minesGames = new Map<number, MinesGameInternal>();
+
+  function calcMinesMultiplier(minesCount: number, revealedCount: number): number {
+    if (revealedCount <= 0) return 1.0;
+    const m = Math.max(3, Math.min(24, Math.floor(minesCount)));
+    const safeTotal = 25 - m;
+    const rCnt = Math.min(revealedCount, safeTotal);
+    let prob = 1.0;
+    for (let i = 0; i < rCnt; i++) {
+      prob *= (safeTotal - i) / (25 - i);
+    }
+    if (prob <= 0) return 1.0;
+    return Number(Math.max(1.01, (1 / prob) * MINES_HOUSE_EDGE).toFixed(2));
+  }
+
+  function serializeMinesPublic(g: MinesGameInternal | undefined) {
+    if (!g) return null;
+    const safeTotal = 25 - g.mines_count;
+    const nextMult =
+      g.status === 'active' && g.revealed.length < safeTotal
+        ? calcMinesMultiplier(g.mines_count, g.revealed.length + 1)
+        : g.multiplier;
+    return {
+      stake_type: g.stake_type,
+      stake_stars: g.stake_stars,
+      collection_item_id: g.collection_item_id,
+      source_is_upgraded: g.source_is_upgraded,
+      item_name: g.item_name,
+      item_image_url: g.item_image_url,
+      mines_count: g.mines_count,
+      revealed: g.revealed,
+      mines: g.status === 'active' ? null : g.mines,
+      status: g.status,
+      multiplier: g.multiplier,
+      next_multiplier: nextMult,
+      payout_stars: g.payout_stars,
+      reward_name: g.reward_name,
+    };
+  }
+
+  function finalizeMinesWin(u: UserState, g: MinesGameInternal) {
+    if (g.stake_type === 'stars') {
+      const payout = Math.round(g.stake_stars * g.multiplier);
+      u.balance_stars += payout;
+      u.xp += 250;
+      g.payout_stars = payout;
+      return { payout_stars: payout, upgraded: false, reward_name: null as string | null };
+    }
+    const item = u.collection.find((x) => x.id === g.collection_item_id);
+    if (item) {
+      item.is_listed = 0;
+      const achievedVal = Math.round(g.stake_stars * g.multiplier);
+      const reward = resolveAutoRocketNft(achievedVal, g.stake_stars, g.source_is_upgraded, item.id);
+      item.gift_key = reward.gift_key;
+      item.name = reward.name;
+      if (reward.is_upgraded) {
+        item.is_upgraded = true;
+        item.model_name = reward.model_name;
+        item.backdrop_key = reward.backdrop_key;
+        item.backdrop_name = reward.backdrop_name;
+        item.backdrop_center_hex = reward.backdrop_center_hex;
+        item.backdrop_edge_hex = reward.backdrop_edge_hex;
+        item.display_stars = reward.stars;
+        item.upgrade_num = nextUpgradeNum++;
+        item.image_url = reward.image_url;
+        const gMeta = UPGRADABLE_GIFTS.find((gm) => gm.key === reward.gift_key);
+        item.base_image_url = gMeta?.image_url || reward.image_url;
+        u.xp += 3500;
+      } else {
+        item.is_upgraded = false;
+        item.model_name = null;
+        item.backdrop_key = null;
+        item.backdrop_name = null;
+        item.backdrop_center_hex = null;
+        item.backdrop_edge_hex = null;
+        item.base_stars = reward.stars;
+        item.display_stars = reward.stars;
+        item.image_url = reward.image_url;
+        item.base_image_url = reward.image_url;
+        u.xp += 900;
+      }
+      g.payout_stars = reward.stars;
+      g.reward_name = reward.title;
+      return { payout_stars: reward.stars, upgraded: reward.is_upgraded, reward_name: reward.title };
+    }
+    return { payout_stars: 0, upgraded: false, reward_name: null as string | null };
+  }
+
+  app.get('/api/mines/state', (req, res) => {
+    const u = resolveRequestUser(req);
+    res.json({ ok: true, game: serializeMinesPublic(minesGames.get(u.user_id)) });
+  });
+
+  app.post('/api/mines/start', (req, res) => {
+    const u = resolveRequestUser(req);
+    const existing = minesGames.get(u.user_id);
+    if (existing && existing.status === 'active') {
+      return res.status(400).json({ ok: false, error: 'Завершите текущую игру в Мины.' });
+    }
+    const minesCount = Math.floor(parseNum(req.body?.mines_count, 3));
+    if (minesCount < 3 || minesCount > 24) {
+      return res.status(400).json({ ok: false, error: 'Количество мин должно быть от 3 до 24.' });
+    }
+    const stakeType = String(req.body?.stake_type || 'stars');
+    let stakeStars = 0;
+    let collectionItemId: number | null = null;
+    let sourceIsUpgraded = false;
+    let itemName: string | null = null;
+    let itemImageUrl: string | null = null;
+
+    if (stakeType === 'stars') {
+      stakeStars = Math.round(parseNum(req.body?.stake_stars, 0));
+      if (stakeStars < 50) return res.status(400).json({ ok: false, error: 'Минимальная ставка — 50 ⭐.' });
+      if (u.balance_stars < stakeStars) return res.status(400).json({ ok: false, error: 'Недостаточно Stars на балансе.' });
+      u.balance_stars -= stakeStars;
+    } else if (stakeType === 'nft') {
+      const itemId = Math.floor(parseNum(req.body?.collection_item_id, 0));
+      const item = u.collection.find((x) => x.id === itemId);
+      if (!item) return res.status(400).json({ ok: false, error: 'NFT не найден в коллекции.' });
+      if (item.is_listed !== 0) return res.status(400).json({ ok: false, error: 'Этот NFT сейчас занят.' });
+      item.is_listed = 2;
+      stakeStars = item.display_stars;
+      collectionItemId = item.id;
+      sourceIsUpgraded = item.is_upgraded;
+      itemName = item.model_name || item.name;
+      itemImageUrl = item.image_url;
+    } else {
+      return res.status(400).json({ ok: false, error: 'Неизвестный тип ставки.' });
+    }
+
+    const pool = Array.from({ length: 25 }, (_, i) => i);
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const mines = pool.slice(0, minesCount).sort((a, b) => a - b);
+
+    const game: MinesGameInternal = {
+      stake_type: stakeType as 'stars' | 'nft',
+      stake_stars: stakeStars,
+      collection_item_id: collectionItemId,
+      source_is_upgraded: sourceIsUpgraded,
+      item_name: itemName,
+      item_image_url: itemImageUrl,
+      mines_count: minesCount,
+      mines,
+      revealed: [],
+      status: 'active',
+      multiplier: 1.0,
+      payout_stars: 0,
+      reward_name: null,
+    };
+    minesGames.set(u.user_id, game);
+    res.json({ ok: true, game: serializeMinesPublic(game), user: serializeUser(u), collection: u.collection });
+  });
+
+  app.post('/api/mines/reveal', (req, res) => {
+    const u = resolveRequestUser(req);
+    const g = minesGames.get(u.user_id);
+    if (!g || g.status !== 'active') {
+      return res.status(400).json({ ok: false, error: 'Нет активной игры.' });
+    }
+    const cell = Math.floor(parseNum(req.body?.cell, -1));
+    if (cell < 0 || cell >= 25) {
+      return res.status(400).json({ ok: false, error: 'Некорректная клетка.' });
+    }
+    if (g.revealed.includes(cell)) {
+      return res.status(400).json({ ok: false, error: 'Эта клетка уже открыта.' });
+    }
+
+    g.revealed.push(cell);
+    if (g.mines.includes(cell)) {
+      g.status = 'lost';
+      g.payout_stars = 0;
+      if (g.stake_type === 'nft' && g.collection_item_id !== null) {
+        u.collection = u.collection.filter((it) => it.id !== g.collection_item_id);
+      }
+      return res.json({
+        ok: true,
+        hit_mine: true,
+        auto_won: false,
+        game: serializeMinesPublic(g),
+        user: serializeUser(u),
+        collection: u.collection,
+      });
+    }
+
+    g.multiplier = calcMinesMultiplier(g.mines_count, g.revealed.length);
+    const safeTotal = 25 - g.mines_count;
+    if (g.revealed.length >= safeTotal) {
+      g.status = 'won';
+      const fin = finalizeMinesWin(u, g);
+      return res.json({
+        ok: true,
+        hit_mine: false,
+        auto_won: true,
+        ...fin,
+        game: serializeMinesPublic(g),
+        user: serializeUser(u),
+        collection: u.collection,
+      });
+    }
+
+    res.json({
+      ok: true,
+      hit_mine: false,
+      auto_won: false,
+      game: serializeMinesPublic(g),
+      user: serializeUser(u),
+      collection: u.collection,
+    });
+  });
+
+  app.post('/api/mines/cashout', (req, res) => {
+    const u = resolveRequestUser(req);
+    const g = minesGames.get(u.user_id);
+    if (!g || g.status !== 'active') {
+      return res.status(400).json({ ok: false, error: 'Нет активной игры.' });
+    }
+    if (g.revealed.length < 1) {
+      return res.status(400).json({ ok: false, error: 'Откройте хотя бы 1 клетку перед выводом.' });
+    }
+    g.status = 'won';
+    const fin = finalizeMinesWin(u, g);
+    res.json({
+      ok: true,
+      ...fin,
+      game: serializeMinesPublic(g),
+      user: serializeUser(u),
+      collection: u.collection,
+    });
   });
 
   app.get('/api/assets/gift/:key', (req, res) => {

@@ -11,7 +11,15 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { apiRequest, formatStars, formatTon, getTelegramWebApp, resolveAssetUrl } from '../api';
+import {
+  apiRequest,
+  formatStars,
+  formatTon,
+  getTelegramWebApp,
+  parseDecimal,
+  resolveAssetUrl,
+  sanitizeDecimalInput,
+} from '../api';
 import { CandlestickChart } from './CandlestickChart';
 import type { CandleData, CatalogData, MemecoinSummary, TradeData, UserProfile } from '../types';
 
@@ -69,9 +77,9 @@ export function ExchangeView({
   const [swapAmt, setSwapAmt] = useState<string>('10000');
   const [swapBusy, setSwapBusy] = useState(false);
 
-  // Token-based Trade state
+  // Trade state: Buy in TON sum, Sell in token quantity
   const [tradeSide, setTradeSide] = useState<'buy' | 'sell'>('buy');
-  const [tradeTokensAmt, setTradeTokensAmt] = useState<string>('1000');
+  const [tradeInputAmt, setTradeInputAmt] = useState<string>('100');
   const [tradeBusy, setTradeBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -110,7 +118,7 @@ export function ExchangeView({
     }
   }, [selectedCoinId, coins]);
 
-  const swapNumeric = Math.max(0, Number(swapAmt || 0));
+  const swapNumeric = Math.max(0, parseDecimal(swapAmt));
   const swapReceiveAmount = useMemo(() => {
     const rate = catalog.ton_star_rate || 1000;
     if (!Number.isFinite(swapNumeric) || swapNumeric <= 0) return 0;
@@ -133,6 +141,7 @@ export function ExchangeView({
     setNoticeMsg(null);
     setSwapBusy(true);
     try {
+      const numericAmt = parseDecimal(swapAmt);
       const res = await apiRequest<{
         balance_stars: number;
         balance_tons: number;
@@ -140,7 +149,7 @@ export function ExchangeView({
         swapped_stars: number;
       }>('/api/exchange/swap', {
         method: 'POST',
-        body: JSON.stringify({ direction: swapDir, amount: Number(swapAmt || 0) }),
+        body: JSON.stringify({ direction: swapDir, amount: numericAmt }),
       });
       onUserPatch({
         balance_stars: res.balance_stars,
@@ -209,41 +218,130 @@ export function ExchangeView({
     }
   };
 
-  // Smooth uncapped bonding curve quote calculation for token-based buy & sell
+  const baseSlope = catalog.memecoin_curve_slope || 0.0000005;
+
+  // Exact quote calculation synced with backend: Buy by TON amount, Sell by token amount
   const tradeQuote = useMemo(() => {
     if (!coinDetail) return null;
     const c = coinDetail.coin;
-    const tokQty = Number(tradeTokensAmt || 0);
-    if (!Number.isFinite(tokQty) || tokQty <= 0) {
-      return { valid: false, reason: 'Введите количество токенов больше 0', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
-    }
+    const val = parseDecimal(tradeInputAmt);
     const curPrice = Math.max(0.00001, c.price_ton);
-    const slope = 0.0002 / Math.max(100_000_000, c.total_supply);
+    const slope = baseSlope * (100_000_000 / Math.max(100_000_000, c.total_supply));
 
     if (tradeSide === 'buy') {
-      if (tokQty < 1) {
-        return { valid: false, reason: 'Минимум — 1 токен', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
+      if (!Number.isFinite(val) || val <= 0) {
+        return {
+          valid: false,
+          reason: 'Введите сумму покупки в TON',
+          tonCost: 0,
+          tokensOut: 0,
+          newPrice: curPrice,
+          impactPct: 0,
+          grossTon: 0,
+          feeTon: 0,
+          netTon: 0,
+        };
       }
-      const newPrice = Math.max(0.00001, curPrice + slope * tokQty);
-      const tonCost = Number(Math.max(0.000001, tokQty * (curPrice + newPrice) * 0.5).toFixed(6));
-      if (tonCost > user.balance_tons + 1e-9) {
-        return { valid: false, reason: `Недостаточно TON (нужно ${tonCost.toFixed(4)} TON)`, tonCost, grossTon: 0, feeTon: 0, netTon: 0 };
+      const tonIn = Number(val.toFixed(6));
+      if (tonIn < 0.01) {
+        return {
+          valid: false,
+          reason: 'Минимальная покупка — 0.01 TON',
+          tonCost: tonIn,
+          tokensOut: 0,
+          newPrice: curPrice,
+          impactPct: 0,
+          grossTon: 0,
+          feeTon: 0,
+          netTon: 0,
+        };
       }
-      return { valid: true, reason: '', tonCost, grossTon: 0, feeTon: 0, netTon: 0 };
+      const disc = curPrice * curPrice + 2 * slope * tonIn;
+      const tokensOut = Math.max(0, (-curPrice + Math.sqrt(disc)) / slope);
+      const newPrice = Number(Math.max(0.00001, curPrice + slope * tokensOut).toFixed(8));
+      const impactPct = curPrice > 0 ? ((newPrice - curPrice) / curPrice) * 100 : 0;
+
+      if (tonIn > user.balance_tons + 1e-9) {
+        return {
+          valid: false,
+          reason: `Недостаточно TON на балансе (доступно ${formatTon(user.balance_tons, 2)} TON)`,
+          tonCost: tonIn,
+          tokensOut,
+          newPrice,
+          impactPct,
+          grossTon: 0,
+          feeTon: 0,
+          netTon: 0,
+        };
+      }
+      return {
+        valid: true,
+        reason: '',
+        tonCost: tonIn,
+        tokensOut,
+        newPrice,
+        impactPct,
+        grossTon: 0,
+        feeTon: 0,
+        netTon: 0,
+      };
     } else {
-      if (tokQty > c.my_balance + 1e-6) {
-        return { valid: false, reason: 'Недостаточно токенов на балансе', tonCost: 0, grossTon: 0, feeTon: 0, netTon: 0 };
+      if (!Number.isFinite(val) || val <= 0) {
+        return {
+          valid: false,
+          reason: 'Введите количество токенов больше 0',
+          tonCost: 0,
+          tokensOut: 0,
+          newPrice: curPrice,
+          impactPct: 0,
+          grossTon: 0,
+          feeTon: 0,
+          netTon: 0,
+        };
       }
-      const newPrice = Math.max(0.00005, curPrice - slope * tokQty);
-      const grossTon = Math.max(0, tokQty * (curPrice + newPrice) * 0.5);
+      if (val > c.my_balance + 1e-6) {
+        return {
+          valid: false,
+          reason: 'Недостаточно токенов на балансе',
+          tonCost: 0,
+          tokensOut: 0,
+          newPrice: curPrice,
+          impactPct: 0,
+          grossTon: 0,
+          feeTon: 0,
+          netTon: 0,
+        };
+      }
+      const newPrice = Number(Math.max(0.00001, curPrice - slope * val).toFixed(8));
+      const grossTon = Math.max(0, val * (curPrice + newPrice) * 0.5);
       const feeTon = grossTon * 0.15;
       const netTon = grossTon * 0.85;
       if (netTon < 0.000001) {
-        return { valid: false, reason: 'Слишком маленькое количество для продажи', tonCost: 0, grossTon, feeTon, netTon };
+        return {
+          valid: false,
+          reason: 'Слишком маленькое количество для продажи',
+          tonCost: 0,
+          tokensOut: val,
+          newPrice,
+          impactPct: 0,
+          grossTon,
+          feeTon,
+          netTon,
+        };
       }
-      return { valid: true, reason: '', tonCost: 0, grossTon, feeTon, netTon };
+      return {
+        valid: true,
+        reason: '',
+        tonCost: 0,
+        tokensOut: val,
+        newPrice,
+        impactPct: curPrice > 0 ? ((newPrice - curPrice) / curPrice) * 100 : 0,
+        grossTon,
+        feeTon,
+        netTon,
+      };
     }
-  }, [coinDetail, tradeSide, tradeTokensAmt, user.balance_tons]);
+  }, [coinDetail, tradeSide, tradeInputAmt, user.balance_tons, baseSlope]);
 
   const handleOpenTradeConfirm = () => {
     setErrorMsg(null);
@@ -261,6 +359,7 @@ export function ExchangeView({
     setNoticeMsg(null);
     setTradeBusy(true);
     try {
+      const numericAmt = parseDecimal(tradeInputAmt);
       const res = await apiRequest<{
         balance_tons: number;
         ton_amount?: number;
@@ -274,8 +373,8 @@ export function ExchangeView({
         method: 'POST',
         body: JSON.stringify({
           side: tradeSide,
-          amount: Number(tradeTokensAmt || 0),
-          unit: 'tokens',
+          amount: numericAmt,
+          unit: tradeSide === 'buy' ? 'ton' : 'tokens',
         }),
       });
       if (res.user) {
@@ -287,14 +386,19 @@ export function ExchangeView({
       setConfirmOpen(false);
       await onRefreshAll();
       getTelegramWebApp()?.HapticFeedback?.notificationOccurred('success');
-      const finalTon = Number(res.ton_amount ?? res.trades?.[0]?.ton_amount ?? (tradeSide === 'buy' ? tradeQuote?.tonCost : tradeQuote?.netTon) ?? 0);
+      const finalTon = Number(
+        res.ton_amount ??
+          res.trades?.[0]?.ton_amount ??
+          (tradeSide === 'buy' ? tradeQuote?.tonCost : tradeQuote?.netTon) ??
+          0
+      );
       if (tradeSide === 'buy') {
         setNoticeMsg(
-          `Куплено ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} за ${finalTon.toFixed(4)} TON`
+          `Куплено ${formatCompactNum(res.tokens_delta || tradeQuote?.tokensOut || 0, 2)} $${res.coin.ticker} за ${formatTon(finalTon, 4)} TON`
         );
       } else {
         setNoticeMsg(
-          `Продано ${formatCompactNum(res.tokens_delta || Number(tradeTokensAmt), 2)} $${res.coin.ticker} · получено +${finalTon.toFixed(4)} TON`
+          `Продано ${formatCompactNum(res.tokens_delta || numericAmt, 2)} $${res.coin.ticker} · получено +${formatTon(finalTon, 4)} TON`
         );
       }
     } catch (err) {
@@ -307,7 +411,7 @@ export function ExchangeView({
 
   const handleTransferCoin = async () => {
     if (!coinDetail || transferBusy) return;
-    const amt = Number(transferAmount || 0);
+    const amt = parseDecimal(transferAmount);
     const rec = transferRecipient.trim();
     if (!rec) {
       setErrorMsg('Укажите @username или Telegram ID получателя.');
@@ -361,6 +465,9 @@ export function ExchangeView({
   // 1. Coin Detail Terminal
   if (selectedCoinId !== null && coinDetail) {
     const c = coinDetail.coin;
+    const parsedTradeNum = parseDecimal(tradeInputAmt);
+    const parsedTransferNum = parseDecimal(transferAmount);
+
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
@@ -373,7 +480,7 @@ export function ExchangeView({
               setErrorMsg(null);
               setNoticeMsg(null);
             }}
-            className="flex min-h-[42px] items-center gap-1.5 rounded-2xl border border-white/10 bg-zinc-900 px-3.5 text-xs font-semibold text-white"
+            className="glass-chip flex min-h-[42px] items-center gap-1.5 rounded-2xl px-3.5 text-xs font-semibold text-white active:scale-95"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>К бирже</span>
@@ -387,25 +494,25 @@ export function ExchangeView({
                 setTransferAmount(c.my_balance > 0 ? String(Math.floor(c.my_balance)) : '');
                 setTransferOpen(true);
               }}
-              className="flex min-h-[42px] items-center gap-1.5 rounded-2xl border border-white/15 bg-zinc-900 px-3 text-xs font-semibold text-white transition-transform active:scale-95"
+              className="glass-chip flex min-h-[42px] items-center gap-1.5 rounded-2xl px-3 text-xs font-semibold text-white transition-transform active:scale-95"
             >
               <Send className="h-3.5 w-3.5" />
-              <span>Передать монету</span>
+              <span>Передать</span>
             </button>
-            <span className="truncate rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 font-mono-num text-xs font-semibold text-zinc-200">
+            <span className="glass-chip truncate rounded-2xl px-3 py-2 font-mono-num text-xs font-semibold text-zinc-200">
               {formatTon(user.balance_tons, 2)} TON
             </span>
           </div>
         </div>
 
-        {/* Coin Header & Overflow-safe 2x2 Stats */}
-        <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-4 sm:p-5">
+        {/* Coin Header & 2x2 Stats */}
+        <section className="glass-surface rounded-[28px] p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <img
                 src={resolveAssetUrl(c.image_url)}
                 alt={c.name}
-                className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-black object-cover"
+                className="h-12 w-12 shrink-0 rounded-2xl border border-white/10 bg-black/50 object-cover"
               />
               <div className="min-w-0">
                 <h2 className="truncate text-base font-bold text-white sm:text-lg">{c.name}</h2>
@@ -429,7 +536,7 @@ export function ExchangeView({
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2.5">
-            <div className="min-w-0 rounded-2xl bg-zinc-950 p-3">
+            <div className="glass-inset min-w-0 rounded-2xl p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-500">Цена за 1 токен</p>
               <p className="mt-1 truncate font-mono-num text-xs font-bold text-white">
                 {formatTokenPrice(c.price_ton)} TON
@@ -438,7 +545,7 @@ export function ExchangeView({
                 ≈ {formatStarEquivalent(c.price_stars)} ⭐
               </p>
             </div>
-            <div className="min-w-0 rounded-2xl bg-zinc-950 p-3">
+            <div className="glass-inset min-w-0 rounded-2xl p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-500">Капитализация</p>
               <p className="mt-1 truncate font-mono-num text-xs font-bold text-white">
                 {formatCompactNum(c.market_cap_ton, 2)} TON
@@ -447,7 +554,7 @@ export function ExchangeView({
                 Эмиссия: {formatCompactNum(c.total_supply, 0)}
               </p>
             </div>
-            <div className="min-w-0 rounded-2xl bg-zinc-950 p-3">
+            <div className="glass-inset min-w-0 rounded-2xl p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-500">Пул ликвидности</p>
               <p className="mt-1 truncate font-mono-num text-xs font-bold text-white">
                 {formatCompactNum(c.reserve_ton, 2)} TON
@@ -456,7 +563,7 @@ export function ExchangeView({
                 Объём: {formatCompactNum(c.volume_24h_ton, 1)} TON
               </p>
             </div>
-            <div className="min-w-0 rounded-2xl bg-zinc-950 p-3">
+            <div className="glass-inset min-w-0 rounded-2xl p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-500">Ваш баланс</p>
               <p className="mt-1 truncate font-mono-num text-xs font-bold text-white">
                 {formatCompactNum(c.my_balance, 2)} ${c.ticker}
@@ -471,77 +578,85 @@ export function ExchangeView({
         <CandlestickChart candles={coinDetail.candles} />
 
         {noticeMsg && (
-          <div className="rounded-2xl border border-white/20 bg-zinc-900 p-3 text-center text-xs font-medium text-white">
+          <div className="glass-card rounded-2xl p-3 text-center text-xs font-medium text-white">
             {noticeMsg}
           </div>
         )}
         {errorMsg && (
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 p-3 text-center text-xs text-rose-300">
+          <div className="rounded-2xl border border-rose-500/30 bg-rose-950/35 p-3 text-center text-xs text-rose-300 backdrop-blur-md">
             {errorMsg}
           </div>
         )}
 
-        {/* Token-based Buy / Sell Terminal */}
-        <section className="space-y-3 rounded-3xl border border-white/10 bg-zinc-900/90 p-4 sm:p-5">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-zinc-950 p-1">
+        {/* Buy (by TON sum) / Sell (by Token count) Terminal */}
+        <section className="glass-surface space-y-3 rounded-[28px] p-4 sm:p-5">
+          <div className="glass-inset grid grid-cols-2 gap-1.5 rounded-2xl p-1">
             <button
               type="button"
               onClick={() => {
                 setTradeSide('buy');
-                setTradeTokensAmt('1000');
+                setTradeInputAmt('100');
                 setErrorMsg(null);
               }}
-              className={`min-h-[44px] rounded-xl text-xs font-bold ${
-                tradeSide === 'buy' ? 'bg-white text-black' : 'text-zinc-400'
+              className={`min-h-[44px] rounded-xl text-xs font-bold transition-colors ${
+                tradeSide === 'buy' ? 'bg-white text-black shadow' : 'text-zinc-400'
               }`}
             >
-              Купить
+              Купить за TON
             </button>
             <button
               type="button"
               onClick={() => {
                 setTradeSide('sell');
-                setTradeTokensAmt(c.my_balance > 0 ? String(Math.floor(c.my_balance)) : '0');
+                setTradeInputAmt(c.my_balance > 0 ? String(Number(c.my_balance.toFixed(2))) : '0');
                 setErrorMsg(null);
               }}
-              className={`min-h-[44px] rounded-xl text-xs font-bold ${
-                tradeSide === 'sell' ? 'bg-white text-black' : 'text-zinc-400'
+              className={`min-h-[44px] rounded-xl text-xs font-bold transition-colors ${
+                tradeSide === 'sell' ? 'bg-white text-black shadow' : 'text-zinc-400'
               }`}
             >
-              Продать
+              Продать ${c.ticker}
             </button>
           </div>
 
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-2 text-xs text-zinc-400">
-              <span>Количество токенов (${c.ticker})</span>
+              <span>
+                {tradeSide === 'buy'
+                  ? 'Сумма покупки (TON)'
+                  : `Количество токенов ($${c.ticker})`}
+              </span>
               <span className="truncate font-mono-num">
                 {tradeSide === 'buy'
-                  ? `Баланс: ${formatCompactNum(user.balance_tons, 2)} TON`
+                  ? `Баланс: ${formatTon(user.balance_tons, 2)} TON`
                   : `У вас: ${formatCompactNum(c.my_balance, 2)} $${c.ticker}`}
               </span>
             </div>
 
-            <input
-              type="number"
-              step="any"
-              min={0}
-              value={tradeTokensAmt}
-              onChange={(e) => setTradeTokensAmt(e.target.value)}
-              placeholder={`Кол-во $${c.ticker}`}
-              className="h-12 w-full rounded-2xl border border-white/10 bg-black px-4 font-mono-num text-sm font-semibold text-white outline-none focus:border-white/40"
-            />
+            <div className="glass-inset flex items-center rounded-2xl px-4 focus-within:border-white/35">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={tradeInputAmt}
+                onChange={(e) => setTradeInputAmt(sanitizeDecimalInput(e.target.value))}
+                placeholder={tradeSide === 'buy' ? 'Сумма в TON' : `Кол-во $${c.ticker}`}
+                className="h-12 w-full bg-transparent font-mono-num text-sm font-semibold text-white outline-none"
+              />
+              <span className="ml-2 shrink-0 text-xs font-semibold text-zinc-400">
+                {tradeSide === 'buy' ? 'TON' : `$${c.ticker}`}
+              </span>
+            </div>
 
             {tradeSide === 'buy' ? (
               <div className="mt-2 grid grid-cols-5 gap-1.5">
-                {[1000, 10000, 100000, 1000000, 5000000].map((qty) => (
+                {[10, 100, 1000, 10000, 100000].map((tonPreset) => (
                   <button
-                    key={qty}
+                    key={tonPreset}
                     type="button"
-                    onClick={() => setTradeTokensAmt(String(qty))}
-                    className="min-h-[36px] rounded-xl border border-white/10 bg-zinc-950 font-mono-num text-[11px] font-semibold text-zinc-300 active:scale-95"
+                    onClick={() => setTradeInputAmt(String(tonPreset))}
+                    className="glass-chip min-h-[36px] rounded-xl font-mono-num text-[11px] font-semibold text-zinc-200 active:scale-95"
                   >
-                    {formatCompactNum(qty, 0)}
+                    {formatCompactNum(tonPreset, 0)}
                   </button>
                 ))}
               </div>
@@ -552,9 +667,9 @@ export function ExchangeView({
                     key={pct}
                     type="button"
                     onClick={() =>
-                      setTradeTokensAmt(String(Number((c.my_balance * pct).toFixed(2))))
+                      setTradeInputAmt(String(Number((c.my_balance * pct).toFixed(2))))
                     }
-                    className="min-h-[36px] rounded-xl border border-white/10 bg-zinc-950 font-mono-num text-xs font-semibold text-zinc-300 active:scale-95"
+                    className="glass-chip min-h-[36px] rounded-xl font-mono-num text-xs font-semibold text-zinc-200 active:scale-95"
                   >
                     {pct * 100}%
                   </button>
@@ -563,36 +678,46 @@ export function ExchangeView({
             )}
           </div>
 
-          {/* Live Quote Preview */}
           {tradeQuote && (
-            <div className="space-y-1.5 rounded-2xl border border-white/10 bg-zinc-950 p-3 text-xs font-mono-num">
+            <div className="glass-inset space-y-1.5 rounded-2xl p-3 font-mono-num text-xs">
               <div className="flex items-center justify-between gap-2 text-zinc-400">
-                <span>Цена за 1 токен</span>
+                <span>Текущая цена</span>
                 <span className="text-zinc-200">{formatTokenPrice(c.price_ton)} TON</span>
               </div>
               {tradeSide === 'buy' ? (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-zinc-400">К оплате</span>
-                  <span className="font-bold text-white">
-                    {tradeQuote.tonCost > 0 ? `${tradeQuote.tonCost.toFixed(4)} TON` : '—'}
-                  </span>
-                </div>
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-zinc-400">Вы получите</span>
+                    <span className="font-bold text-white">
+                      {tradeQuote.tokensOut > 0
+                        ? `≈ ${formatCompactNum(tradeQuote.tokensOut, 2)} $${c.ticker}`
+                        : '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-zinc-400">
+                    <span>Цена после сделки</span>
+                    <span className="text-emerald-400">
+                      {formatTokenPrice(tradeQuote.newPrice)} TON
+                      {tradeQuote.impactPct > 0.01 ? ` (+${tradeQuote.impactPct.toFixed(1)}%)` : ''}
+                    </span>
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-2 text-zinc-400">
                     <span>Комиссия рынка (15%)</span>
-                    <span className="text-amber-400">-{tradeQuote.feeTon.toFixed(4)} TON</span>
+                    <span className="text-amber-400">-{formatTon(tradeQuote.feeTon, 4)} TON</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-zinc-400">Вы получите</span>
                     <span className="font-bold text-emerald-400">
-                      +{tradeQuote.netTon.toFixed(4)} TON
+                      +{formatTon(tradeQuote.netTon, 4)} TON
                     </span>
                   </div>
                 </>
               )}
               {!tradeQuote.valid && (
-                <p className="pt-1 text-[11px] font-sans text-rose-400">{tradeQuote.reason}</p>
+                <p className="pt-1 font-sans text-[11px] text-rose-400">{tradeQuote.reason}</p>
               )}
             </div>
           )}
@@ -604,14 +729,14 @@ export function ExchangeView({
             className="h-12 w-full rounded-2xl bg-white text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-40"
           >
             {tradeSide === 'buy'
-              ? `Купить ${formatCompactNum(Number(tradeTokensAmt || 0), 0)} $${c.ticker}`
-              : `Продать ${formatCompactNum(Number(tradeTokensAmt || 0), 0)} $${c.ticker}`}
+              ? `Купить $${c.ticker} на ${formatTon(parsedTradeNum, 2)} TON`
+              : `Продать ${formatCompactNum(parsedTradeNum, 0)} $${c.ticker}`}
           </button>
         </section>
 
         {/* Recent Trades */}
         {coinDetail.trades.length > 0 && (
-          <section className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4">
+          <section className="glass-card rounded-[28px] p-4">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
               Последние сделки
             </h3>
@@ -619,7 +744,7 @@ export function ExchangeView({
               {coinDetail.trades.slice(0, 10).map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between gap-2 rounded-2xl bg-zinc-950 px-3 py-2 text-xs font-mono-num"
+                  className="glass-inset flex items-center justify-between gap-2 rounded-2xl px-3 py-2 font-mono-num text-xs"
                 >
                   <span
                     className={
@@ -642,8 +767,8 @@ export function ExchangeView({
 
         {/* Trade Confirmation Modal */}
         {confirmOpen && tradeQuote && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center sm:p-4">
-            <div className="w-full max-w-md rounded-t-3xl border border-white/15 bg-zinc-900 p-5 sm:rounded-3xl">
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center sm:p-4">
+            <div className="glass-surface w-full max-w-md rounded-t-[30px] p-5 sm:rounded-[30px]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="h-5 w-5 text-white" />
@@ -654,56 +779,64 @@ export function ExchangeView({
                 <button
                   type="button"
                   onClick={() => setConfirmOpen(false)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+                  className="glass-chip flex h-9 w-9 items-center justify-center rounded-full text-zinc-300"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="mt-4 space-y-2.5 rounded-2xl border border-white/10 bg-zinc-950 p-4 text-xs">
+              <div className="glass-inset mt-4 space-y-2.5 rounded-2xl p-4 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-zinc-400">Монета</span>
                   <span className="font-bold text-white">
                     {c.name} (${c.ticker})
                   </span>
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-zinc-400">Количество</span>
-                  <span className="font-mono-num font-bold text-white">
-                    {formatCompactNum(Number(tradeTokensAmt || 0), 2)} ${c.ticker}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-zinc-400">Курс (1 токен)</span>
-                  <span className="font-mono-num text-zinc-200">
-                    {formatTokenPrice(c.price_ton)} TON
-                  </span>
-                </div>
                 {tradeSide === 'buy' ? (
-                  <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
-                    <span className="font-semibold text-zinc-300">Итого списание</span>
-                    <span className="font-mono-num text-sm font-bold text-white">
-                      {tradeQuote.tonCost.toFixed(4)} TON
-                    </span>
-                  </div>
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-zinc-400">Вы получите</span>
+                      <span className="font-mono-num font-bold text-white">
+                        ≈ {formatCompactNum(tradeQuote.tokensOut, 2)} ${c.ticker}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-zinc-400">Цена после сделки</span>
+                      <span className="font-mono-num text-emerald-400">
+                        {formatTokenPrice(tradeQuote.newPrice)} TON
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
+                      <span className="font-semibold text-zinc-300">Итого списание</span>
+                      <span className="font-mono-num text-sm font-bold text-white">
+                        {formatTon(tradeQuote.tonCost, 4)} TON
+                      </span>
+                    </div>
+                  </>
                 ) : (
                   <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-zinc-400">Количество</span>
+                      <span className="font-mono-num font-bold text-white">
+                        {formatCompactNum(parsedTradeNum, 2)} ${c.ticker}
+                      </span>
+                    </div>
                     <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
                       <span className="text-zinc-400">Сумма до комиссии</span>
                       <span className="font-mono-num text-zinc-200">
-                        {tradeQuote.grossTon.toFixed(4)} TON
+                        {formatTon(tradeQuote.grossTon, 4)} TON
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-zinc-400">Комиссия рынка (15%)</span>
                       <span className="font-mono-num text-amber-400">
-                        -{tradeQuote.feeTon.toFixed(4)} TON
+                        -{formatTon(tradeQuote.feeTon, 4)} TON
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
                       <span className="font-semibold text-zinc-300">К получению</span>
                       <span className="font-mono-num text-sm font-bold text-emerald-400">
-                        +{tradeQuote.netTon.toFixed(4)} TON
+                        +{formatTon(tradeQuote.netTon, 4)} TON
                       </span>
                     </div>
                   </>
@@ -715,7 +848,7 @@ export function ExchangeView({
                   type="button"
                   disabled={tradeBusy}
                   onClick={() => setConfirmOpen(false)}
-                  className="h-12 rounded-2xl border border-white/15 bg-zinc-950 text-xs font-bold text-zinc-300"
+                  className="glass-chip h-12 rounded-2xl text-xs font-bold text-zinc-300"
                 >
                   Отмена
                 </button>
@@ -732,10 +865,11 @@ export function ExchangeView({
             </div>
           </div>
         )}
+
         {/* Transfer Memecoin Modal */}
         {transferOpen && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center sm:p-4">
-            <div className="w-full max-w-md rounded-t-3xl border border-white/15 bg-zinc-900 p-5 sm:rounded-3xl">
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center sm:p-4">
+            <div className="glass-surface w-full max-w-md rounded-t-[30px] p-5 sm:rounded-[30px]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Send className="h-4 w-4 text-white" />
@@ -744,14 +878,14 @@ export function ExchangeView({
                 <button
                   type="button"
                   onClick={() => setTransferOpen(false)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+                  className="glass-chip flex h-9 w-9 items-center justify-center rounded-full text-zinc-300"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
               <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-3.5 py-2.5 text-xs">
+                <div className="glass-inset flex items-center justify-between rounded-2xl px-3.5 py-2.5 text-xs">
                   <span className="text-zinc-400">Доступно у вас</span>
                   <span className="font-mono-num font-bold text-white">
                     {formatCompactNum(c.my_balance, 2)} ${c.ticker}
@@ -767,7 +901,7 @@ export function ExchangeView({
                     value={transferRecipient}
                     onChange={(e) => setTransferRecipient(e.target.value)}
                     placeholder="@username или 123456789"
-                    className="h-12 w-full rounded-2xl border border-white/10 bg-black px-3.5 text-sm text-white outline-none focus:border-white/40"
+                    className="glass-inset h-12 w-full rounded-2xl px-3.5 text-sm text-white outline-none focus:border-white/35"
                   />
                 </div>
 
@@ -776,13 +910,12 @@ export function ExchangeView({
                     Количество токенов (${c.ticker})
                   </label>
                   <input
-                    type="number"
-                    step="any"
-                    min={0}
+                    type="text"
+                    inputMode="decimal"
                     value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
+                    onChange={(e) => setTransferAmount(sanitizeDecimalInput(e.target.value))}
                     placeholder={`Кол-во $${c.ticker}`}
-                    className="h-12 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm font-semibold text-white outline-none focus:border-white/40"
+                    className="glass-inset h-12 w-full rounded-2xl px-3.5 font-mono-num text-sm font-semibold text-white outline-none focus:border-white/35"
                   />
                   {c.my_balance > 0 && (
                     <div className="mt-2 grid grid-cols-4 gap-2">
@@ -793,7 +926,7 @@ export function ExchangeView({
                           onClick={() =>
                             setTransferAmount(String(Number((c.my_balance * pct).toFixed(2))))
                           }
-                          className="min-h-[34px] rounded-xl border border-white/10 bg-zinc-950 font-mono-num text-xs font-semibold text-zinc-300 active:scale-95"
+                          className="glass-chip min-h-[34px] rounded-xl font-mono-num text-xs font-semibold text-zinc-200 active:scale-95"
                         >
                           {pct * 100}%
                         </button>
@@ -803,16 +936,14 @@ export function ExchangeView({
                 </div>
               </div>
 
-              {errorMsg && (
-                <p className="mt-3 text-center text-xs text-rose-400">{errorMsg}</p>
-              )}
+              {errorMsg && <p className="mt-3 text-center text-xs text-rose-400">{errorMsg}</p>}
 
               <div className="mt-5 grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   disabled={transferBusy}
                   onClick={() => setTransferOpen(false)}
-                  className="h-12 rounded-2xl border border-white/15 bg-zinc-950 text-xs font-bold text-zinc-300"
+                  className="glass-chip h-12 rounded-2xl text-xs font-bold text-zinc-300"
                 >
                   Отмена
                 </button>
@@ -821,8 +952,8 @@ export function ExchangeView({
                   disabled={
                     transferBusy ||
                     !transferRecipient.trim() ||
-                    Number(transferAmount || 0) <= 0 ||
-                    Number(transferAmount || 0) > c.my_balance + 1e-6
+                    parsedTransferNum <= 0 ||
+                    parsedTransferNum > c.my_balance + 1e-6
                   }
                   onClick={handleTransferCoin}
                   className="flex h-12 items-center justify-center gap-1.5 rounded-2xl bg-white text-xs font-bold text-black active:scale-[0.98] disabled:opacity-40"
@@ -851,25 +982,24 @@ export function ExchangeView({
               setErrorMsg(null);
               setNoticeMsg(null);
             }}
-            className="flex min-h-[42px] items-center gap-1.5 rounded-2xl border border-white/10 bg-zinc-900 px-3.5 text-xs font-semibold text-white"
+            className="glass-chip flex min-h-[42px] items-center gap-1.5 rounded-2xl px-3.5 text-xs font-semibold text-white active:scale-95"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Назад к бирже</span>
           </button>
-          <span className="rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 font-mono-num text-xs text-zinc-300">
+          <span className="glass-chip rounded-2xl px-3 py-2 font-mono-num text-xs text-zinc-300">
             1 TON = {formatStars(catalog.ton_star_rate)} ⭐
           </span>
         </div>
 
-        <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-5">
+        <section className="glass-surface rounded-[28px] p-5">
           <h2 className="text-lg font-bold tracking-tight text-white">Обменник</h2>
           <p className="mt-0.5 text-xs text-zinc-400">
             Мгновенная конвертация Stars ⭐ ↔ TON без проскальзывания
           </p>
 
           <div className="relative mt-4 space-y-2.5">
-            {/* Pay Box */}
-            <div className="rounded-3xl border border-white/10 bg-zinc-950 p-4">
+            <div className="glass-inset rounded-3xl p-4">
               <div className="flex items-center justify-between text-xs text-zinc-400">
                 <span>Вы отдаёте</span>
                 <button
@@ -891,14 +1021,13 @@ export function ExchangeView({
               </div>
               <div className="mt-3 flex items-center justify-between gap-3">
                 <input
-                  type="number"
-                  min={0}
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   value={swapAmt}
-                  onChange={(e) => setSwapAmt(e.target.value)}
+                  onChange={(e) => setSwapAmt(sanitizeDecimalInput(e.target.value))}
                   className="w-full min-w-0 bg-transparent font-mono-num text-2xl font-bold text-white outline-none"
                 />
-                <span className="shrink-0 rounded-2xl border border-white/15 bg-zinc-900 px-3.5 py-2 text-xs font-bold text-white">
+                <span className="glass-chip shrink-0 rounded-2xl px-3.5 py-2 text-xs font-bold text-white">
                   {isStarsIn ? '⭐ Stars' : 'TON'}
                 </span>
               </div>
@@ -908,7 +1037,7 @@ export function ExchangeView({
                     key={v}
                     type="button"
                     onClick={() => setSwapAmt(String(v))}
-                    className="min-h-[32px] flex-1 rounded-xl border border-white/10 bg-zinc-900 font-mono-num text-[11px] font-semibold text-zinc-300"
+                    className="glass-chip min-h-[32px] flex-1 rounded-xl font-mono-num text-[11px] font-semibold text-zinc-300"
                   >
                     {formatCompactNum(v, 0)}
                   </button>
@@ -916,20 +1045,18 @@ export function ExchangeView({
               </div>
             </div>
 
-            {/* Center Flip Button */}
-            <div className="flex justify-center -my-1 relative z-10">
+            <div className="relative z-10 -my-1 flex justify-center">
               <button
                 type="button"
                 onClick={handleFlipSwap}
                 aria-label="Поменять направление"
-                className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-zinc-900 bg-white text-black shadow-lg transition-transform active:rotate-180"
+                className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-black bg-white text-black shadow-lg transition-transform active:rotate-180"
               >
                 <ArrowUpDown className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Receive Box */}
-            <div className="rounded-3xl border border-white/10 bg-zinc-950 p-4">
+            <div className="glass-inset rounded-3xl p-4">
               <div className="flex items-center justify-between text-xs text-zinc-400">
                 <span>Вы получаете</span>
                 <span className="font-mono-num">
@@ -945,7 +1072,7 @@ export function ExchangeView({
                     ? formatTon(swapReceiveAmount, 4)
                     : formatStars(swapReceiveAmount)}
                 </span>
-                <span className="shrink-0 rounded-2xl border border-white/15 bg-zinc-900 px-3.5 py-2 text-xs font-bold text-white">
+                <span className="glass-chip shrink-0 rounded-2xl px-3.5 py-2 text-xs font-bold text-white">
                   {isStarsIn ? 'TON' : '⭐ Stars'}
                 </span>
               </div>
@@ -953,12 +1080,12 @@ export function ExchangeView({
           </div>
 
           {noticeMsg && (
-            <div className="mt-4 rounded-2xl border border-white/20 bg-zinc-950 p-3 text-center text-xs font-medium text-white">
+            <div className="glass-card mt-4 rounded-2xl p-3 text-center text-xs font-medium text-white">
               {noticeMsg}
             </div>
           )}
           {errorMsg && (
-            <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-3 text-center text-xs text-rose-300">
+            <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-950/35 p-3 text-center text-xs text-rose-300">
               {errorMsg}
             </div>
           )}
@@ -983,7 +1110,7 @@ export function ExchangeView({
   // 3. Exchange Hub View
   return (
     <div className="space-y-4">
-      <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-4 sm:p-5">
+      <section className="glass-surface rounded-[28px] p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-lg font-bold tracking-tight text-white">Криптобиржа</h2>
@@ -999,7 +1126,7 @@ export function ExchangeView({
                 setNoticeMsg(null);
                 setSubView('swapper');
               }}
-              className="flex min-h-[42px] items-center gap-1.5 rounded-2xl border border-white/15 bg-zinc-950 px-3.5 text-xs font-bold text-white transition-transform active:scale-95"
+              className="glass-chip flex min-h-[42px] items-center gap-1.5 rounded-2xl px-3.5 text-xs font-bold text-white transition-transform active:scale-95"
             >
               <ArrowRightLeft className="h-4 w-4" />
               <span>Обменник</span>
@@ -1019,13 +1146,13 @@ export function ExchangeView({
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <div className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950 p-3">
+          <div className="glass-inset min-w-0 rounded-2xl p-3">
             <p className="text-[10px] uppercase tracking-wider text-zinc-500">Баланс TON</p>
             <p className="mt-1 truncate font-mono-num text-sm font-bold text-white">
               {formatTon(user.balance_tons, 2)} TON
             </p>
           </div>
-          <div className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950 p-3">
+          <div className="glass-inset min-w-0 rounded-2xl p-3">
             <p className="text-[10px] uppercase tracking-wider text-zinc-500">Баланс Stars</p>
             <p className="mt-1 truncate font-mono-num text-sm font-bold text-white">
               {formatCompactNum(user.balance_stars, 1)} ⭐
@@ -1034,19 +1161,19 @@ export function ExchangeView({
         </div>
 
         {noticeMsg && (
-          <div className="mt-3 rounded-2xl border border-white/20 bg-zinc-950 p-3 text-center text-xs font-medium text-white">
+          <div className="glass-card mt-3 rounded-2xl p-3 text-center text-xs font-medium text-white">
             {noticeMsg}
           </div>
         )}
         {errorMsg && (
-          <div className="mt-3 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-3 text-center text-xs text-rose-300">
+          <div className="mt-3 rounded-2xl border border-rose-500/30 bg-rose-950/35 p-3 text-center text-xs text-rose-300">
             {errorMsg}
           </div>
         )}
       </section>
 
       {/* Coins List */}
-      <section className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4">
+      <section className="glass-card rounded-[28px] p-4">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Coins className="h-4 w-4 text-zinc-300" />
@@ -1066,13 +1193,13 @@ export function ExchangeView({
                 key={c.id}
                 type="button"
                 onClick={() => setSelectedCoinId(c.id)}
-                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.99]"
+                className="glass-inset flex w-full items-center justify-between gap-3 rounded-2xl p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.99]"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <img
                     src={resolveAssetUrl(c.image_url)}
                     alt={c.name}
-                    className="h-11 w-11 shrink-0 rounded-2xl border border-white/10 bg-black object-cover"
+                    className="h-11 w-11 shrink-0 rounded-2xl border border-white/10 bg-black/50 object-cover"
                   />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-white">{c.name}</p>
@@ -1104,20 +1231,20 @@ export function ExchangeView({
 
       {/* Create Memecoin Sheet */}
       {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4">
-          <div className="w-full max-w-md rounded-t-3xl border border-white/15 bg-zinc-900 p-5 sm:rounded-3xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center sm:p-4">
+          <div className="glass-surface w-full max-w-md rounded-t-[30px] p-5 sm:rounded-[30px]">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white">Создать свой мемкоин</h3>
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+                className="glass-chip flex h-10 w-10 items-center justify-center rounded-full text-zinc-300"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-zinc-950 p-3.5 text-xs">
+            <div className="glass-inset mt-4 space-y-2 rounded-2xl p-3.5 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-zinc-400">Уровень выше {catalog.memecoin_min_level}</span>
                 <span
@@ -1153,7 +1280,7 @@ export function ExchangeView({
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="Например: Durov Coin"
-                  className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 text-sm text-white outline-none focus:border-white/40"
+                  className="glass-inset h-11 w-full rounded-2xl px-3.5 text-sm text-white outline-none focus:border-white/35"
                 />
               </div>
 
@@ -1165,13 +1292,13 @@ export function ExchangeView({
                   value={newTicker}
                   onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
                   placeholder="DUROV"
-                  className="h-11 w-full rounded-2xl border border-white/10 bg-black px-3.5 font-mono-num text-sm uppercase text-white outline-none focus:border-white/40"
+                  className="glass-inset h-11 w-full rounded-2xl px-3.5 font-mono-num text-sm uppercase text-white outline-none focus:border-white/35"
                 />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs text-zinc-400">Аватар монеты (PNG/JPG/WEBP)</label>
-                <label className="flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black px-4 py-2 text-xs font-medium text-zinc-300">
+                <label className="glass-inset flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl border-dashed px-4 py-2 text-xs font-medium text-zinc-300">
                   {newImageB64 ? (
                     <img
                       src={newImageB64}
@@ -1192,9 +1319,7 @@ export function ExchangeView({
               </div>
             </div>
 
-            {errorMsg && (
-              <p className="mt-3 text-center text-xs text-rose-400">{errorMsg}</p>
-            )}
+            {errorMsg && <p className="mt-3 text-center text-xs text-rose-400">{errorMsg}</p>}
 
             <button
               type="button"

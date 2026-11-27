@@ -83,6 +83,7 @@ export interface CatalogData {
   upgrader_chance_factor: number;
   mono_price_mult?: number;
   rocket_upgrade_mult_penalty: number;
+  memecoin_curve_slope?: number;
 }
 
 export interface RocketBet {
@@ -110,6 +111,23 @@ export interface RocketState {
   crash_point: number | null;
   bets: RocketBet[];
   history: Array<{ round_id: number; crash_point: number }>;
+}
+
+export interface MinesGame {
+  stake_type: 'stars' | 'nft';
+  stake_stars: number;
+  collection_item_id: number | null;
+  source_is_upgraded: boolean;
+  item_name: string | null;
+  item_image_url: string | null;
+  mines_count: number;
+  revealed: number[];
+  mines: number[] | null;
+  status: 'active' | 'won' | 'lost';
+  multiplier: number;
+  next_multiplier: number;
+  payout_stars: number;
+  reward_name: string | null;
 }
 
 export interface MemecoinSummary {
@@ -151,3 +169,4 @@ export interface TradeData {
 }
 
 export type AppTab = 'home' | 'games' | 'upgrader' | 'profile' | 'exchange';
+export type GameSubMode = 'rocket' | 'mines';

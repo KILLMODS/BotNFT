@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Gauge, Sparkles, X, Zap } from 'lucide-react';
 import { apiRequest, formatStars, getTelegramWebApp, resolveAssetUrl } from '../api';
-import type { BackdropDef, CatalogData, CollectionItem, GiftCatalogItem, ModelDef, UserProfile } from '../types';
+import type {
+  BackdropDef,
+  CatalogData,
+  CollectionItem,
+  GiftCatalogItem,
+  ModelDef,
+  UserProfile,
+} from '../types';
 
 interface UpgraderViewProps {
   user: UserProfile;
@@ -29,7 +36,8 @@ function calcUpgradedStars(
   const raw = base * backdrop.price_mult * (model ? model.price_mult : 1.1) * monoMult * valMult * 1.5;
   if (gift.key === 'pepe_heart') return Math.max(750000, Math.round(raw / 10000) * 10000);
   if (gift.key === 'trophy_cup') return Math.max(375000, Math.round(raw / 5000) * 5000);
-  if (gift.key === 'heart_lock_key' || gift.key === 'bonded_ring') return Math.max(225000, Math.round(raw / 5000) * 5000);
+  if (gift.key === 'heart_lock_key' || gift.key === 'bonded_ring')
+    return Math.max(225000, Math.round(raw / 5000) * 5000);
   return Math.max(150000, Math.round(raw / 5000) * 5000);
 }
 
@@ -65,6 +73,12 @@ function findCheapestValidCombo(
     }
   }
   return best;
+}
+
+function formatChancePct(pct: number): string {
+  if (pct < 1) return pct.toFixed(2);
+  if (pct < 10) return pct.toFixed(2).replace(/\.?0+$/, '');
+  return pct.toFixed(1);
 }
 
 export function UpgraderView({ user, collection, catalog, onSync }: UpgraderViewProps) {
@@ -104,27 +118,42 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
     modelsForTarget.find((m) => m.name === targetModelName) || modelsForTarget[0] || null;
 
   const selectedBackdrop =
-    catalog.backdrops.find((b) => b.key === targetBackdropKey) ||
-    catalog.backdrops[0];
+    catalog.backdrops.find((b) => b.key === targetBackdropKey) || catalog.backdrops[0];
 
   const sourceBuffPct = selectedSource?.buff_value_pct || 0;
 
   const estimatedTargetStars = useMemo(() => {
     if (!selectedTargetGift || !selectedBackdrop) return 0;
-    return calcUpgradedStars(selectedTargetGift, selectedModel, selectedBackdrop, catalog, sourceBuffPct);
+    return calcUpgradedStars(
+      selectedTargetGift,
+      selectedModel,
+      selectedBackdrop,
+      catalog,
+      sourceBuffPct
+    );
   }, [selectedTargetGift, selectedModel, selectedBackdrop, catalog, sourceBuffPct]);
 
   const isTargetValid = Boolean(
     selectedSource && estimatedTargetStars > selectedSource.display_stars
   );
 
-  // Auto-snap to a valid target (> source.display_stars) whenever source NFT changes
   useEffect(() => {
     if (!selectedSource || spinning) return;
     if (estimatedTargetStars <= selectedSource.display_stars) {
       const valid =
-        findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, targetGiftKey, targetModelName) ||
-        findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, targetGiftKey) ||
+        findCheapestValidCombo(
+          selectedSource.display_stars,
+          catalog,
+          sourceBuffPct,
+          targetGiftKey,
+          targetModelName
+        ) ||
+        findCheapestValidCombo(
+          selectedSource.display_stars,
+          catalog,
+          sourceBuffPct,
+          targetGiftKey
+        ) ||
         findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct);
       if (valid) {
         setTargetGiftKey(valid.giftKey);
@@ -132,20 +161,33 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
         setTargetBackdropKey(valid.backdropKey);
       }
     }
-  }, [selectedSource?.id, selectedSource?.display_stars, estimatedTargetStars, catalog, sourceBuffPct, spinning, targetGiftKey, targetModelName]);
+  }, [
+    selectedSource?.id,
+    selectedSource?.display_stars,
+    estimatedTargetStars,
+    catalog,
+    sourceBuffPct,
+    spinning,
+    targetGiftKey,
+    targetModelName,
+  ]);
+
+  const chanceFactor = catalog.upgrader_chance_factor || 0.55;
 
   const chancePct = useMemo(() => {
     if (!selectedSource || estimatedTargetStars <= 0 || !isTargetValid) return 0;
     const raw = (selectedSource.display_stars / estimatedTargetStars) * 100;
-    return Number(
-      Math.max(1, Math.min(72, raw * (catalog.upgrader_chance_factor || 0.78))).toFixed(2)
-    );
-  }, [selectedSource, estimatedTargetStars, isTargetValid, catalog.upgrader_chance_factor]);
+    return Number(Math.max(0.01, Math.min(68, raw * chanceFactor)).toFixed(2));
+  }, [selectedSource, estimatedTargetStars, isTargetValid, chanceFactor]);
 
   const displayChancePct = spinning && spinChancePct !== null ? spinChancePct : chancePct;
   const radius = 92;
   const circumference = 2 * Math.PI * radius;
-  const winArcLength = (displayChancePct / 100) * circumference;
+  // Minimum hairline arc (2px) when chance > 0 so ultra-low chances (< 1%) remain visibly marked
+  const winArcLength =
+    displayChancePct > 0
+      ? Math.max(2, (displayChancePct / 100) * circumference)
+      : 0;
 
   const animDurationMs = spinSpeed === 'fast' ? 550 : 2600;
   const fullSpinTurns = spinSpeed === 'fast' ? 360 * 2 : 360 * 5;
@@ -158,7 +200,12 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
     if (selectedSource && nextG && selectedBackdrop) {
       const stars = calcUpgradedStars(nextG, nextM, selectedBackdrop, catalog, sourceBuffPct);
       if (stars <= selectedSource.display_stars) {
-        const best = findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, key);
+        const best = findCheapestValidCombo(
+          selectedSource.display_stars,
+          catalog,
+          sourceBuffPct,
+          key
+        );
         if (best) {
           setTargetModelName(best.modelName);
           setTargetBackdropKey(best.backdropKey);
@@ -173,9 +220,21 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
     setTargetModelName(mName);
     if (selectedSource && selectedTargetGift && selectedBackdrop) {
       const nextM = modelsForTarget.find((m) => m.name === mName) || null;
-      const stars = calcUpgradedStars(selectedTargetGift, nextM, selectedBackdrop, catalog, sourceBuffPct);
+      const stars = calcUpgradedStars(
+        selectedTargetGift,
+        nextM,
+        selectedBackdrop,
+        catalog,
+        sourceBuffPct
+      );
       if (stars <= selectedSource.display_stars) {
-        const best = findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, selectedTargetGift.key, mName);
+        const best = findCheapestValidCombo(
+          selectedSource.display_stars,
+          catalog,
+          sourceBuffPct,
+          selectedTargetGift.key,
+          mName
+        );
         if (best) {
           setTargetBackdropKey(best.backdropKey);
         }
@@ -215,10 +274,10 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
       const winAngleLimit = (res.chance_pct / 100) * 360;
       const rawRollAngle = (res.roll / 100) * 360;
       const targetAngle = res.won
-        ? winAngleLimit <= 6
-          ? Math.max(0.8, Math.min(winAngleLimit - 0.8, winAngleLimit * 0.5))
-          : Math.max(2, Math.min(winAngleLimit - 2, rawRollAngle))
-        : Math.max(Math.min(358, winAngleLimit + 2.5), Math.min(358, rawRollAngle));
+        ? winAngleLimit <= 3
+          ? Math.max(0.4, winAngleLimit * 0.5)
+          : Math.max(1.2, Math.min(winAngleLimit - 1.2, rawRollAngle))
+        : Math.max(Math.min(358, winAngleLimit + 3.5), Math.min(358, rawRollAngle));
       setNeedleDeg((prev) => prev - (prev % 360) + fullSpinTurns + targetAngle);
 
       setTimeout(() => {
@@ -234,7 +293,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
           won: res.won,
           text: res.won
             ? `Успех! Получен улучшенный ${selectedTargetGift.title} (${formatStars(res.target_stars)} ⭐)`
-            : `Не повезло (${res.roll.toFixed(1)}% при шансе ${res.chance_pct.toFixed(1)}%). Попробуйте снова.`,
+            : `Не повезло (${res.roll.toFixed(2)}% при шансе ${formatChancePct(res.chance_pct)}%). Попробуйте снова.`,
         });
       }, animDurationMs + 80);
     } catch (err) {
@@ -246,7 +305,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
 
   return (
     <div className="space-y-4">
-      <section className="rounded-3xl border border-white/10 bg-zinc-900/90 p-5">
+      <section className="glass-surface rounded-[28px] p-5">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-lg font-bold tracking-tight text-white">Апгрейдер</h2>
@@ -254,20 +313,20 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               Соберите редкий NFT с моделью и фоном
             </p>
           </div>
-          <div className="shrink-0 rounded-2xl border border-white/10 bg-black/60 px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
+          <div className="glass-chip shrink-0 rounded-2xl px-3 py-1.5 font-mono-num text-xs font-semibold text-zinc-200">
             {formatStars(user.balance_stars)} ⭐
           </div>
         </div>
 
         {/* Speed Toggle */}
         <div className="mt-4 flex items-center justify-center">
-          <div className="inline-grid grid-cols-2 gap-1 rounded-2xl border border-white/10 bg-zinc-950 p-1">
+          <div className="glass-inset inline-grid grid-cols-2 gap-1 rounded-2xl p-1">
             <button
               type="button"
               disabled={spinning}
               onClick={() => setSpinSpeed('slow')}
               className={`flex min-h-[36px] items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition-colors ${
-                spinSpeed === 'slow' ? 'bg-white text-black' : 'text-zinc-400'
+                spinSpeed === 'slow' ? 'bg-white text-black shadow' : 'text-zinc-400'
               }`}
             >
               <Gauge className="h-3.5 w-3.5" />
@@ -278,7 +337,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               disabled={spinning}
               onClick={() => setSpinSpeed('fast')}
               className={`flex min-h-[36px] items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition-colors ${
-                spinSpeed === 'fast' ? 'bg-white text-black' : 'text-zinc-400'
+                spinSpeed === 'fast' ? 'bg-white text-black shadow' : 'text-zinc-400'
               }`}
             >
               <Zap className="h-3.5 w-3.5" />
@@ -287,11 +346,10 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
           </div>
         </div>
 
-        {/* Polished Circular Wheel */}
+        {/* Circular Wheel */}
         <div className="mt-4 flex flex-col items-center">
           <div className="relative flex h-60 w-60 items-center justify-center">
             <svg viewBox="0 0 240 240" className="h-full w-full">
-              {/* Rim Tick Marks */}
               {Array.from({ length: 36 }).map((_, i) => {
                 const angle = (i * 10 * Math.PI) / 180;
                 const x1 = 120 + Math.cos(angle) * 107;
@@ -312,14 +370,13 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                 );
               })}
 
-              {/* Base Track & Active Win Arc */}
               <g transform="rotate(-90 120 120)">
                 <circle
                   cx="120"
                   cy="120"
                   r={radius}
                   fill="none"
-                  stroke="#18181b"
+                  stroke="rgba(255,255,255,0.06)"
                   strokeWidth="18"
                 />
                 <circle
@@ -327,7 +384,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                   cy="120"
                   r={radius}
                   fill="none"
-                  stroke="#27272a"
+                  stroke="rgba(255,255,255,0.12)"
                   strokeWidth="14"
                 />
                 <circle
@@ -344,7 +401,6 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               </g>
             </svg>
 
-            {/* Sharp Arrow Needle */}
             <div
               className="pointer-events-none absolute inset-0 flex items-start justify-center"
               style={{
@@ -354,19 +410,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                 transitionTimingFunction: 'cubic-bezier(0.14, 0.92, 0.24, 1)',
               }}
             >
-              <svg width="24" height="30" viewBox="0 0 24 30" className="mt-0.5 drop-shadow-[0_0_8px_rgba(255,255,255,0.85)]">
+              <svg width="24" height="30" viewBox="0 0 24 30" className="mt-0.5 drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]">
                 <polygon points="12,26 4,4 20,4" fill="#ffffff" />
                 <circle cx="12" cy="7" r="2.2" fill="#000000" />
               </svg>
             </div>
 
-            {/* Center Telemetry */}
-            <div className="absolute flex h-36 w-36 flex-col items-center justify-center rounded-full border border-white/10 bg-zinc-950/95 text-center shadow-inner">
+            <div className="glass-inset absolute flex h-36 w-36 flex-col items-center justify-center rounded-full text-center backdrop-blur-xl">
               <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-500">
                 Шанс
               </span>
               <span className="mt-0.5 font-mono-num text-3xl font-bold tracking-tight text-white">
-                {selectedSource ? `${displayChancePct.toFixed(1)}%` : '0%'}
+                {selectedSource ? `${formatChancePct(displayChancePct)}%` : '0%'}
               </span>
               <span className="mt-1 max-w-[120px] truncate font-mono-num text-[10px] text-zinc-400">
                 {selectedSource
@@ -382,26 +437,25 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
             className={`mt-4 rounded-2xl border p-3.5 text-center text-xs font-medium ${
               resultMsg.won
                 ? 'border-white/30 bg-white text-black'
-                : 'border-white/10 bg-zinc-950 text-zinc-300'
+                : 'glass-inset border-white/10 text-zinc-300'
             }`}
           >
             {resultMsg.text}
           </div>
         )}
         {errorMsg && (
-          <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-3 text-center text-xs text-rose-300">
+          <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-950/35 p-3 text-center text-xs text-rose-300">
             {errorMsg}
           </div>
         )}
 
         {/* Dual Slots */}
         <div className="mt-5 grid grid-cols-2 gap-3">
-          {/* Slot 1: Your NFT */}
           <button
             type="button"
             disabled={spinning}
             onClick={() => setPickerMode('source')}
-            className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+            className="glass-inset flex min-h-[120px] flex-col justify-between rounded-3xl p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
           >
             <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400">
               <span>Ваш NFT</span>
@@ -412,7 +466,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                 <img
                   src={resolveAssetUrl(selectedSource.image_url)}
                   alt={selectedSource.name}
-                  className="h-12 w-12 shrink-0 rounded-xl bg-zinc-900 object-contain p-1"
+                  className="h-12 w-12 shrink-0 rounded-xl bg-white/5 object-contain p-1"
                 />
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-white">
@@ -428,12 +482,11 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
             )}
           </button>
 
-          {/* Slot 2: Target NFT */}
           <button
             type="button"
             disabled={spinning}
             onClick={() => setPickerMode('target')}
-            className="flex min-h-[120px] flex-col justify-between rounded-3xl border border-white/10 bg-zinc-950 p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
+            className="glass-inset flex min-h-[120px] flex-col justify-between rounded-3xl p-3.5 text-left transition-colors hover:border-white/25 active:scale-[0.98]"
           >
             <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400">
               <span>Цель (NFT + Фон)</span>
@@ -485,15 +538,15 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               ? 'Крутим колесо...'
               : !isTargetValid && selectedSource
               ? 'Выберите цель дороже вашего NFT'
-              : `Улучшить за шанс ${chancePct.toFixed(1)}%`}
+              : `Улучшить за шанс ${formatChancePct(chancePct)}%`}
           </span>
         </button>
       </section>
 
       {/* Bottom Sheet Picker */}
       {pickerMode && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4">
-          <div className="flex max-h-[82vh] w-full max-w-lg flex-col rounded-t-3xl border border-white/15 bg-zinc-900 sm:rounded-3xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center sm:p-4">
+          <div className="glass-surface flex max-h-[82vh] w-full max-w-lg flex-col rounded-t-[30px] sm:rounded-[30px]">
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
               <h3 className="text-base font-bold text-white">
                 {pickerMode === 'source' ? 'Выберите ваш NFT' : 'Настройка цели апгрейда'}
@@ -501,7 +554,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
               <button
                 type="button"
                 onClick={() => setPickerMode(null)}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+                className="glass-chip flex h-10 w-10 items-center justify-center rounded-full text-zinc-300"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -527,14 +580,14 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                           }}
                           className={`flex items-center gap-2.5 rounded-2xl border p-3 text-left ${
                             active
-                              ? 'border-white bg-zinc-800'
-                              : 'border-white/10 bg-zinc-950'
+                              ? 'border-white/50 bg-white/15'
+                              : 'glass-inset border-white/10'
                           }`}
                         >
                           <img
                             src={resolveAssetUrl(it.image_url)}
                             alt={it.name}
-                            className="h-11 w-11 shrink-0 rounded-xl bg-zinc-900 object-contain p-1"
+                            className="h-11 w-11 shrink-0 rounded-xl bg-white/5 object-contain p-1"
                           />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-semibold text-white">
@@ -556,11 +609,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
                       1. Тип подарка
                     </label>
-                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
                       {catalog.upgradable_gifts.map((g) => {
                         const active = g.key === targetGiftKey;
                         const canReach = selectedSource
-                          ? Boolean(findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, g.key))
+                          ? Boolean(
+                              findCheapestValidCombo(
+                                selectedSource.display_stars,
+                                catalog,
+                                sourceBuffPct,
+                                g.key
+                              )
+                            )
                           : true;
                         return (
                           <button
@@ -571,7 +631,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                             className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-2xl border px-3.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
                                 ? 'border-white bg-white text-black'
-                                : 'border-white/10 bg-zinc-950 text-zinc-300'
+                                : 'glass-inset border-white/10 text-zinc-300'
                             }`}
                           >
                             <img
@@ -593,9 +653,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
                       {modelsForTarget.map((m) => {
                         const active = m.name === selectedModel?.name;
-                        const canReach = selectedSource && selectedTargetGift
-                          ? Boolean(findCheapestValidCombo(selectedSource.display_stars, catalog, sourceBuffPct, selectedTargetGift.key, m.name))
-                          : true;
+                        const canReach =
+                          selectedSource && selectedTargetGift
+                            ? Boolean(
+                                findCheapestValidCombo(
+                                  selectedSource.display_stars,
+                                  catalog,
+                                  sourceBuffPct,
+                                  selectedTargetGift.key,
+                                  m.name
+                                )
+                              )
+                            : true;
                         return (
                           <button
                             key={m.name}
@@ -604,8 +673,8 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                             onClick={() => handleModelChange(m.name)}
                             className={`flex min-h-[48px] items-center gap-2 rounded-2xl border p-2 text-left disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
-                                ? 'border-white bg-zinc-800'
-                                : 'border-white/10 bg-zinc-950'
+                                ? 'border-white/50 bg-white/15'
+                                : 'glass-inset border-white/10'
                             }`}
                           >
                             <img
@@ -634,11 +703,18 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                     <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
                       {catalog.backdrops.map((b) => {
                         const active = b.key === selectedBackdrop?.key;
-                        const comboStars =
-                          selectedTargetGift
-                            ? calcUpgradedStars(selectedTargetGift, selectedModel, b, catalog, sourceBuffPct)
-                            : 0;
-                        const isHigher = selectedSource ? comboStars > selectedSource.display_stars : true;
+                        const comboStars = selectedTargetGift
+                          ? calcUpgradedStars(
+                              selectedTargetGift,
+                              selectedModel,
+                              b,
+                              catalog,
+                              sourceBuffPct
+                            )
+                          : 0;
+                        const isHigher = selectedSource
+                          ? comboStars > selectedSource.display_stars
+                          : true;
                         return (
                           <button
                             key={b.key}
@@ -647,8 +723,8 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                             onClick={() => setTargetBackdropKey(b.key)}
                             className={`flex min-h-[48px] items-center gap-2.5 rounded-2xl border p-2 text-left disabled:cursor-not-allowed disabled:opacity-35 ${
                               active
-                                ? 'border-white bg-zinc-800'
-                                : 'border-white/10 bg-zinc-950'
+                                ? 'border-white/50 bg-white/15'
+                                : 'glass-inset border-white/10'
                             }`}
                           >
                             <span
@@ -683,7 +759,7 @@ export function UpgraderView({ user, collection, catalog, onSync }: UpgraderView
                   className="h-12 w-full rounded-2xl bg-white text-sm font-bold text-black disabled:opacity-40"
                 >
                   {isTargetValid
-                    ? `Готово · Шанс ${chancePct.toFixed(1)}%`
+                    ? `Готово · Шанс ${formatChancePct(chancePct)}%`
                     : 'Выберите цель дороже вашего NFT'}
                 </button>
               </div>
